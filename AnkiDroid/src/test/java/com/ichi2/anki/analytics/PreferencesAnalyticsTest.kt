@@ -95,6 +95,16 @@ class PreferencesAnalyticsTest : RobolectricTest() {
             R.string.pref_allow_dangerous_js_api, // allow_dangerous_js_api
             // Security-sensitive settings (GHSL-2026-085)
             R.string.pref_allow_card_external_launch_key, // allowCardExternalLaunch
+            // AI settings: user-specific provider configuration, not reportable
+            R.string.ai_screen_key, // aiScreen
+            R.string.ai_providers_entry_key, // aiProvidersEntry
+            R.string.ai_refresh_models_key, // aiRefreshModels
+            R.string.ai_flashcard_category_key, // aiFlashcardCategory
+            R.string.ai_image_category_key, // aiImageCategory
+            R.string.ai_flashcard_provider_key, // aiFlashcardProvider
+            R.string.ai_flashcard_model_key, // aiFlashcardModel
+            R.string.ai_image_provider_key, // aiImageProvider
+            R.string.ai_image_model_key, // aiImageModel
         ).toStringResourceSet()
 
     @Test

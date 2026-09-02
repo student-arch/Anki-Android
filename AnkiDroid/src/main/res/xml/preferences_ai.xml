@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!--
+  AI generation settings. Providers are managed on a dedicated screen; each generation
+  task (flashcards, images) selects its provider and model independently.
+-->
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:key="@string/ai_screen_key"
+    android:title="@string/ai_settings_title">
+
+    <Preference
+        android:key="@string/ai_providers_entry_key"
+        android:title="@string/ai_providers_title"
+        android:summary="@string/ai_providers_none_configured" />
+
+    <Preference
+        android:key="@string/ai_refresh_models_key"
+        android:title="@string/ai_refresh_models_title"
+        android:summary="@string/ai_refresh_models_summary" />
+
+    <PreferenceCategory
+        android:key="@string/ai_flashcard_category_key"
+        android:title="@string/ai_task_flashcards">
+
+        <ListPreference
+            android:key="@string/ai_flashcard_provider_key"
+            android:persistent="false"
+            android:title="@string/ai_provider_label" />
+
+        <ListPreference
+            android:key="@string/ai_flashcard_model_key"
+            android:persistent="false"
+            android:title="@string/ai_model_label" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="@string/ai_image_category_key"
+        android:title="@string/ai_task_images">
+
+        <ListPreference
+            android:key="@string/ai_image_provider_key"
+            android:persistent="false"
+            android:title="@string/ai_provider_label" />
+
+        <ListPreference
+            android:key="@string/ai_image_model_key"
+            android:persistent="false"
+            android:title="@string/ai_model_label" />
+    </PreferenceCategory>
+</PreferenceScreen>

@@ -89,6 +89,7 @@ import com.ichi2.anki.InitialActivity.StartupFailure.StorageUndecided
 import com.ichi2.anki.StudyOptionsFragment.Companion.registerStudyOptionsAddEditReminderHandler
 import com.ichi2.anki.StudyOptionsFragment.Companion.registerStudyOptionsStudyHandler
 import com.ichi2.anki.account.AccountActivity
+import com.ichi2.anki.ai.FlashcardGenerationFragment
 import com.ichi2.anki.analytics.AnkiDroidUsageAnalytics
 import com.ichi2.anki.android.back.exitViaDoubleTapBackCallback
 import com.ichi2.anki.android.input.ShortcutGroup
@@ -1398,6 +1399,11 @@ open class DeckPicker :
             R.id.action_model_browser_open -> {
                 Timber.i("DeckPicker:: Model browser button pressed")
                 viewModel.openManageNoteTypes()
+                return true
+            }
+            R.id.action_generate_flashcards -> {
+                Timber.i("DeckPicker:: Generate flashcards button pressed")
+                startActivity(FlashcardGenerationFragment.getIntent(this))
                 return true
             }
             R.id.action_restore_backup -> {
