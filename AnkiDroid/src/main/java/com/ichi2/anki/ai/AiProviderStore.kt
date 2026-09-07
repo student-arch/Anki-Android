@@ -97,6 +97,11 @@ class AiProviderStore private constructor(
         mutex.withLock { prefs().edit { remove(selectionKey(taskType)) } }
     }
 
+    /** Removes the saved selection and provider association for every task type. */
+    suspend fun clearAllSelections() {
+        AiTaskType.entries.forEach { clearSelection(it) }
+    }
+
     private fun selectedProviderIds(): Set<String> =
         AiTaskType.entries.mapNotNull { taskType -> getSelection(taskType)?.providerId }.toSet()
 

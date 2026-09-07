@@ -105,6 +105,7 @@ class ProviderConfigFragment : Fragment(R.layout.fragment_ai_providers) {
             binding.name.setText(provider.name)
             binding.baseUrl.setText(provider.baseUrl)
             binding.apiKey.setText(provider.apiKey)
+            binding.models.setText(provider.modelIds.joinToString("\n"))
         }
         androidx.appcompat.app.AlertDialog
             .Builder(requireContext())
@@ -114,6 +115,11 @@ class ProviderConfigFragment : Fragment(R.layout.fragment_ai_providers) {
                 )
                 customView(view = binding.root)
                 positiveButton(R.string.save) {
+                    val manualModels =
+                        parseModels(
+                            binding.models.text
+                                .toString(),
+                        )
                     validateAndSave(
                         AiProvider(
                             id = existingProvider?.id ?: AiProvider.newId(),
@@ -126,14 +132,27 @@ class ProviderConfigFragment : Fragment(R.layout.fragment_ai_providers) {
                                 binding.apiKey.text
                                     .toString()
                                     .trim(),
+                            modelIds = manualModels,
                         ),
+                        manualModels,
                     )
                 }
                 negativeButton(R.string.dialog_cancel)
             }
     }
 
-    private fun validateAndSave(provider: AiProvider) {
+    /** Splits a comma- and/or newline-separated model list into distinct non-blank ids. */
+    private fun parseModels(text: String): List<String> =
+        text
+            .split(',', '\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
+    private fun validateAndSave(
+        provider: AiProvider,
+        manualModels: List<String>,
+    ) {
         if (provider.name.isEmpty() || provider.baseUrl.isEmpty()) {
             showSnackbar(R.string.ai_provider_missing_fields)
             return
@@ -141,26 +160,36 @@ class ProviderConfigFragment : Fragment(R.layout.fragment_ai_providers) {
         launchCatchingTask {
             withProgress(getString(R.string.ai_provider_testing)) {
                 runCatching { client.listModels(provider) }
-                    .onSuccess { models ->
+                    .onSuccess { fetched ->
+                        val models = (fetched + manualModels).distinct()
                         Timber.i("provider '%s' offers %d models", provider.name, models.size)
                         persist(provider.copy(modelIds = models))
                         showSnackbar(getString(R.string.ai_provider_validated, models.size))
                     }.onFailure { e ->
-                        Timber.w(e, "provider validation failed for %s", provider.name)
-                        showErrorDialog(provider, e)
+                        // Some providers (e.g. Cloudflare AI) don't support GET /models (HTTP 405).
+                        // That is not fatal: fall back to the models the user typed manually.
+                        Timber.w(e, "model listing failed for %s", provider.name)
+                        if (manualModels.isNotEmpty()) {
+                            persist(provider.copy(modelIds = manualModels))
+                            showSnackbar(getString(R.string.ai_provider_saved_manual))
+                        } else {
+                            showNeedsModelsDialog(provider, e)
+                        }
                     }
             }
         }
     }
 
-    private fun showErrorDialog(
+    /** Explains that model listing is unsupported and lets the user save anyway or add models. */
+    private fun showNeedsModelsDialog(
         provider: AiProvider,
         e: Throwable,
     ) {
+        val code = Regex("HTTP (\\d+)").find(e.message.orEmpty())?.groupValues?.get(1) ?: "?"
         androidx.appcompat.app.AlertDialog
             .Builder(requireContext())
             .setTitle(R.string.ai_provider_test_failed)
-            .setMessage(e.message ?: getString(R.string.ai_provider_test_failed))
+            .setMessage(getString(R.string.ai_provider_needs_manual_models, code))
             .setPositiveButton(R.string.save_anyway) { _, _ -> persist(provider) }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()

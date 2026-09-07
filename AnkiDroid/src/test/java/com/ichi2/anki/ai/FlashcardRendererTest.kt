@@ -78,4 +78,66 @@ class FlashcardRendererTest {
             )
         assertThat(FlashcardRenderer.reviewText(card), equalTo("A\n\nImage\nhttps://example.com/cpu.png"))
     }
+
+    @Test
+    fun `subject and topic render as a header line`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                subject = "Electrical Engineering",
+                topic = "Ohm's Law",
+            )
+        assertThat(FlashcardRenderer.ankiBack(card), containsString("Electrical Engineering \u00b7 Ohm's Law"))
+        assertThat(FlashcardRenderer.reviewText(card), equalTo("Electrical Engineering \u00b7 Ohm's Law\n\nA"))
+    }
+
+    @Test
+    fun `formula and units render in pre`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                sections = listOf(CardSection("Formula", "V = IR"), CardSection("Units", "R = Ohm")),
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("<b>Formula</b><pre>V = IR</pre>"))
+        assertThat(html, containsString("<b>Units</b><pre>R = Ohm</pre>"))
+    }
+
+    @Test
+    fun `caption html uses the image caption`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                image = CardImage(required = true, prompt = "p", caption = "Series circuit"),
+            )
+        assertThat(FlashcardRenderer.captionHtml(card), containsString("Series circuit"))
+    }
+
+    @Test
+    fun `review text shows a required image description`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                image = CardImage(required = true, prompt = "draw it", alt = "A circuit diagram"),
+            )
+        assertThat(FlashcardRenderer.reviewText(card), equalTo("A\n\nImage\nA circuit diagram"))
+    }
+
+    @Test
+    fun `markdown bold becomes html bold in the note and is stripped in preview`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A **step-up transformer** increases voltage.",
+                sections = listOf(CardSection("Key Points", "\u2022 **more** turns")),
+            )
+        assertThat(FlashcardRenderer.ankiBack(card), containsString("<b>step-up transformer</b>"))
+        assertThat(FlashcardRenderer.ankiBack(card), containsString("<b>more</b>"))
+        assertThat(FlashcardRenderer.reviewText(card), containsString("A step-up transformer increases voltage."))
+        assertThat(FlashcardRenderer.reviewText(card).contains("**"), equalTo(false))
+    }
 }

@@ -74,32 +74,68 @@ class AiSettingsFragment : SettingsFragment() {
         val modelPreference = requirePreference<ListPreference>(modelKey(taskType))
 
         val providers = providerStore.getProviders()
-        providerPreference.entries = providers.map { it.name }.toTypedArray()
-        providerPreference.entryValues = providers.map { it.id }.toTypedArray()
-        providerPreference.isEnabled = providers.isNotEmpty()
+        // image generation can be explicitly turned off by picking "None"; flashcards always
+        // need a provider, so only the image task offers the none entry
+        val noneAllowed = taskType == AiTaskType.IMAGE
+        val noneLabel = getString(R.string.ai_image_provider_none)
+        val names =
+            buildList {
+                if (noneAllowed) add(noneLabel)
+                addAll(providers.map { it.name })
+            }
+        val values =
+            buildList {
+                if (noneAllowed) add(VALUE_NONE)
+                addAll(providers.map { it.id })
+            }
+        providerPreference.entries = names.toTypedArray()
+        providerPreference.entryValues = values.toTypedArray()
+        providerPreference.isEnabled = values.isNotEmpty()
 
         val selection = providerStore.getSelection(taskType)
-        if (selection != null && providers.none { it.id == selection.providerId }) {
-            providerPreference.value = null
-            providerPreference.summary = null
-            modelPreference.value = null
-            modelPreference.summary = getString(R.string.ai_model_none_selected)
-            return
-        }
-
-        providerPreference.value = selection?.providerId
-        providerPreference.summary = providers.firstOrNull { it.id == selection?.providerId }?.name
+        val selectedId =
+            when {
+                selection == null -> if (noneAllowed) VALUE_NONE else null
+                providers.none { it.id == selection.providerId } -> if (noneAllowed) VALUE_NONE else null
+                else -> selection.providerId
+            }
+        providerPreference.value = selectedId
+        providerPreference.summary =
+            when (selectedId) {
+                VALUE_NONE -> noneLabel
+                null -> null
+                else -> providers.firstOrNull { it.id == selectedId }?.name
+            }
         providerPreference.setOnPreferenceChangeListener { _, newValue ->
             val providerId = newValue as String
-            // reset the model whenever the provider changes
-            providerPreference.summary = providers.firstOrNull { it.id == providerId }?.name
-            modelPreference.value = null
-            modelPreference.summary = getString(R.string.ai_model_none_selected)
-            updateModelEntries(taskType, providerId)
+            if (providerId == VALUE_NONE) {
+                // the user turned image generation off
+                providerPreference.summary = noneLabel
+                modelPreference.value = null
+                modelPreference.isEnabled = false
+                modelPreference.summary = getString(R.string.ai_images_off)
+            } else {
+                providerPreference.summary = providers.firstOrNull { it.id == providerId }?.name
+                modelPreference.value = null
+                modelPreference.summary = getString(R.string.ai_model_none_selected)
+                updateModelEntries(taskType, providerId)
+            }
+            // clear the saved selection on every provider change: generation stays off until a
+            // model is picked, so a stale provider/model pair can never be used silently
+            viewLifecycleOwner.lifecycleScope.launch {
+                providerStore.clearSelection(taskType)
+            }
             true
         }
 
-        updateModelEntries(taskType, selection?.providerId)
+        if (selectedId == VALUE_NONE) {
+            modelPreference.value = null
+            modelPreference.isEnabled = false
+            modelPreference.summary = getString(R.string.ai_images_off)
+            return
+        }
+
+        updateModelEntries(taskType, selectedId)
         val modelId = selection?.modelId
         if (modelId != null) {
             modelPreference.value = modelId
@@ -121,10 +157,15 @@ class AiSettingsFragment : SettingsFragment() {
         providerId: String?,
     ) {
         val modelPreference = requirePreference<ListPreference>(modelKey(taskType))
+        // every model the provider offers is selectable for every task; the user decides,
+        // and a mismatched pick surfaces the provider's own error message
         val models = providerStore.getProvider(providerId)?.modelIds.orEmpty()
         modelPreference.entries = models.toTypedArray()
         modelPreference.entryValues = models.toTypedArray()
         modelPreference.isEnabled = models.isNotEmpty()
+        if (models.isEmpty()) {
+            modelPreference.summary = getString(R.string.ai_model_none_selected)
+        }
     }
 
     private fun saveSelection(
@@ -180,5 +221,10 @@ class AiSettingsFragment : SettingsFragment() {
             }
             refreshTaskSelections()
         }
+    }
+
+    private companion object {
+        /** Picker value of the "None (don't generate images)" entry; never a real provider id. */
+        private const val VALUE_NONE = "__none__"
     }
 }

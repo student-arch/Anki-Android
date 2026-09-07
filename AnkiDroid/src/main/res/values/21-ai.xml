@@ -18,6 +18,8 @@
     <string name="ai_models_refresh_failed" comment="%d is the number of providers whose models could not be fetched">Could not refresh models for %d provider(s)</string>
     <string name="ai_task_flashcards" maxLength="41">Flashcard generation</string>
     <string name="ai_task_images" maxLength="41">Image generation</string>
+    <string name="ai_image_provider_none" comment="Picker entry that disables image generation entirely">None (don\u2019t generate images)</string>
+    <string name="ai_images_off" comment="Shown for the image model when image generation is disabled">Images are off \u2014 no provider selected</string>
 
     <!-- Provider management -->
     <string name="ai_provider_add_button">Add provider</string>
@@ -35,6 +37,10 @@
     <string name="ai_provider_delete_message" comment="%s is the provider name">Delete the provider \u201c%s\u201d? It will no longer be available for flashcard or image generation.</string>
     <string name="ai_provider_model_count" comment="%d is the number of models offered by the provider">%d models</string>
     <string name="save_anyway">Save anyway</string>
+    <string name="ai_provider_models_hint">Models (optional)</string>
+    <string name="ai_provider_models_helper">One model id per line or comma-separated. Needed when the provider cannot list models (e.g. Cloudflare AI: @cf/meta/llama-3.2-1b-instruct).</string>
+    <string name="ai_provider_saved_manual">Saved. This provider cannot list models, so the models you typed were used.</string>
+    <string name="ai_provider_needs_manual_models">This provider does not support listing models (HTTP %1$s). Enter at least one model id in the Models field, then save.</string>
 
     <!-- Flashcard generation -->
     <string name="menu_generate_flashcards" maxLength="28">Generate flashcards</string>
@@ -47,6 +53,16 @@
     <string name="ai_adding">Adding cards\u2026</string>
     <string name="ai_deselect_all">Deselect all</string>
     <string name="ai_card_accepted">Accept</string>
+    <string name="ai_card_image">Card image</string>
+    <string name="ai_generating_image">Generating image\u2026</string>
+    <string name="ai_image_failed">Image generation failed</string>
+    <string name="ai_image_retry_select">Regenerate this image</string>
+    <string name="ai_change_images">Generate or replace images</string>
+    <string name="ai_select_images">Select cards for image generation</string>
+    <string name="ai_image_no_models">No models loaded. Refresh this provider in AI settings.</string>
+    <string name="ai_image_replacement_failed">Could not replace the image. Your previous image was kept. Choose another provider or model and try again.</string>
+    <string name="ai_provider_model_summary" comment="%1$s is the AI provider name, %2$s is the AI model id">%1$s \u00b7 %2$s</string>
+    <string name="ai_generate_images_label" comment="Switch that enables or disables image generation for the generated flashcards">Generate images</string>
     <string name="ai_edit_card">Edit card</string>
     <string name="ai_reject_card">Reject card</string>
     <string name="ai_edit_card_title" maxLength="41">Edit flashcard</string>

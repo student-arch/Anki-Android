@@ -74,6 +74,18 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
                                 viewModel.updateCards(remaining)
                             }
                         }
+
+                        override fun onRetryImage(card: GeneratedFlashcard) {
+                            viewModel.toggleRetrySelection(card.id, true)
+                            viewModel.retrySelectedImages()
+                        }
+
+                        override fun onRetrySelectionChanged(
+                            card: GeneratedFlashcard,
+                            isSelected: Boolean,
+                        ) {
+                            viewModel.toggleRetrySelection(card.id, isSelected)
+                        }
                     },
                 )
             }
@@ -102,6 +114,35 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
                     viewModel.clearError()
                 }
             }.launchIn(viewLifecycleOwner.lifecycleScope)
+
+        // re-render the review list as async image generation completes per card
+        viewModel.imageStates
+            .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .onEach { renderReviewCards(binding) }
+            .launchIn(viewLifecycleOwner.lifecycleScope)
+        viewModel.retrySelection
+            .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .onEach { renderReviewCards(binding) }
+            .launchIn(viewLifecycleOwner.lifecycleScope)
+        viewModel.selectedProviderModel
+            .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .onEach { renderProviderModel(binding) }
+            .launchIn(viewLifecycleOwner.lifecycleScope)
+        viewModel.selectedImageProviderModel
+            .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .onEach { renderImageProviderModel(binding) }
+            .launchIn(viewLifecycleOwner.lifecycleScope)
+        viewModel.isImageGenerationEnabled
+            .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .onEach { enabled -> renderImagesEnabled(binding, enabled) }
+            .launchIn(viewLifecycleOwner.lifecycleScope)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // the selection or provider list may have changed while the AI settings were open
+        viewModel.refreshSelectedProviderModel()
+        viewModel.refreshImageSelection()
     }
 
     override fun onDestroyView() {
@@ -111,6 +152,11 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
 
     private fun setupInputStep(binding: FragmentFlashcardGenerationBinding) {
         binding.setupHint.setOnClickListener { ProviderConfigFragment.openFrom(requireContext()) }
+        binding.selectProviderModel.setOnClickListener { showProviderModelSelection() }
+        binding.selectImageProviderModel.setOnClickListener { showImageProviderModelSelection() }
+        binding.generateImages.setOnCheckedChangeListener { _, isChecked ->
+            viewModel.setImagesEnabled(isChecked)
+        }
         binding.generate.setOnClickListener {
             val text =
                 binding.material.text
@@ -124,18 +170,23 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
                 binding.count.text
                     .toString()
                     .toIntOrNull()
-                    ?.coerceIn(MIN_CARDS, MAX_CARDS) ?: DEFAULT_CARD_COUNT
+                    ?.coerceIn(MIN_CARDS, MAX_CARDS) ?: FlashcardGenerator.COUNT_AUTO
             viewModel.generate(text, requested)
         }
     }
 
     private fun setupReviewStep(binding: FragmentFlashcardGenerationBinding) {
+        binding.changeImages.setOnClickListener { showImageCardSelection() }
         binding.selectAll.setOnClickListener {
             viewModel.acceptAll()
             renderReviewCards(binding)
         }
         binding.deselectAll.setOnClickListener {
             viewModel.acceptNone()
+            renderReviewCards(binding)
+        }
+        binding.retryFailed.setOnClickListener {
+            viewModel.retrySelectedImages()
             renderReviewCards(binding)
         }
         binding.deckTargetGroup.setOnCheckedChangeListener { _, checkedId ->
@@ -153,6 +204,96 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
             }
         }
         binding.addCards.setOnClickListener { addAcceptedCards(binding) }
+    }
+
+    /** Image selection is separate from accepting cards for addition to a deck. */
+    private fun showImageCardSelection() {
+        val cards = viewModel.currentCards()
+        val selected = BooleanArray(cards.size)
+        val dialog =
+            androidx.appcompat.app.AlertDialog
+                .Builder(requireContext())
+                .setTitle(R.string.ai_select_images)
+                .setMultiChoiceItems(cards.map { it.front }.toTypedArray(), selected) { _, index, checked ->
+                    selected[index] = checked
+                }.setPositiveButton(R.string.ai_provider_label, null)
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .create()
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val ids = cards.filterIndexed { index, _ -> selected[index] }.map { it.id }.toSet()
+                if (ids.isEmpty()) {
+                    showSnackbar(R.string.ai_select_images)
+                } else {
+                    dialog.dismiss()
+                    showImageProviderSelection(ids)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showImageProviderSelection(cardIds: Set<Long>) {
+        val providers = AiProviderStore.getInstance(requireContext().applicationContext).getProviders()
+        if (providers.isEmpty()) {
+            showSnackbar(R.string.ai_providers_none_configured)
+            return
+        }
+        androidx.appcompat.app.AlertDialog
+            .Builder(requireContext())
+            .setTitle(R.string.ai_provider_label)
+            .setItems(providers.map { it.name }.toTypedArray()) { _, index ->
+                val provider = providers[index]
+                if (provider.modelIds.isEmpty()) {
+                    showSnackbar(R.string.ai_image_no_models)
+                    return@setItems
+                }
+                androidx.appcompat.app.AlertDialog
+                    .Builder(requireContext())
+                    .setTitle(R.string.ai_model_label)
+                    .setItems(provider.modelIds.toTypedArray()) { _, modelIndex ->
+                        viewModel.regenerateImages(cardIds, provider.id, provider.modelIds[modelIndex])
+                    }.setNegativeButton(R.string.dialog_cancel, null)
+                    .show()
+            }.setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    /** Lets the user pick the provider and model used for flashcard generation on this screen. */
+    private fun showProviderModelSelection() {
+        showProviderModelPicker { providerId, modelId -> viewModel.selectProviderModel(providerId, modelId) }
+    }
+
+    /** Lets the user pick the provider and model used for image generation on this screen. */
+    private fun showImageProviderModelSelection() {
+        showProviderModelPicker { providerId, modelId -> viewModel.selectImageProviderModel(providerId, modelId) }
+    }
+
+    /** Two-step picker: choose a provider, then one of its models; [onPicked] receives the choice. */
+    private fun showProviderModelPicker(onPicked: (providerId: String, modelId: String) -> Unit) {
+        val providers = AiProviderStore.getInstance(requireContext().applicationContext).getProviders()
+        if (providers.isEmpty()) {
+            showSnackbar(R.string.ai_providers_none_configured)
+            return
+        }
+        androidx.appcompat.app.AlertDialog
+            .Builder(requireContext())
+            .setTitle(R.string.ai_provider_label)
+            .setItems(providers.map { it.name }.toTypedArray()) { _, index ->
+                val provider = providers[index]
+                if (provider.modelIds.isEmpty()) {
+                    showSnackbar(R.string.ai_image_no_models)
+                    return@setItems
+                }
+                androidx.appcompat.app.AlertDialog
+                    .Builder(requireContext())
+                    .setTitle(R.string.ai_model_label)
+                    .setItems(provider.modelIds.toTypedArray()) { _, modelIndex ->
+                        onPicked(provider.id, provider.modelIds[modelIndex])
+                    }.setNegativeButton(R.string.dialog_cancel, null)
+                    .show()
+            }.setNegativeButton(R.string.dialog_cancel, null)
+            .show()
     }
 
     private fun addAcceptedCards(binding: FragmentFlashcardGenerationBinding) {
@@ -221,8 +362,57 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
     }
 
     private fun renderReviewCards(binding: FragmentFlashcardGenerationBinding) {
-        reviewAdapter?.submitCards(viewModel.currentCards(), viewModel.acceptedIds.value)
+        reviewAdapter?.submitCards(
+            viewModel.currentCards(),
+            viewModel.acceptedIds.value,
+            viewModel.imageStates.value,
+            viewModel.retrySelection.value,
+        )
         updateAddButton(binding)
+        updateRetryButton(binding)
+    }
+
+    /** Shows the current flashcard provider/model on the picker button. */
+    private fun renderProviderModel(binding: FragmentFlashcardGenerationBinding) {
+        val selection = viewModel.selectedProviderModel.value
+        binding.selectProviderModel.text =
+            if (selection == null) {
+                getString(R.string.ai_model_none_selected)
+            } else {
+                getString(R.string.ai_provider_model_summary, selection.providerName, selection.modelId)
+            }
+    }
+
+    /** Shows the current image provider/model on the picker button, or the off label. */
+    private fun renderImageProviderModel(binding: FragmentFlashcardGenerationBinding) {
+        val selection = viewModel.selectedImageProviderModel.value
+        binding.selectImageProviderModel.text =
+            if (selection == null) {
+                getString(R.string.ai_images_off)
+            } else {
+                getString(R.string.ai_provider_model_summary, selection.providerName, selection.modelId)
+            }
+    }
+
+    /** Reflects the image switch state and greys out the image picker when images are off. */
+    private fun renderImagesEnabled(
+        binding: FragmentFlashcardGenerationBinding,
+        enabled: Boolean,
+    ) {
+        // suppress the listener feedback loop when the state change did not come from the user
+        binding.generateImages.setOnCheckedChangeListener(null)
+        binding.generateImages.isChecked = enabled
+        binding.generateImages.setOnCheckedChangeListener { _, isChecked ->
+            viewModel.setImagesEnabled(isChecked)
+        }
+        binding.selectImageProviderModel.isEnabled = enabled
+    }
+
+    /** Shows the batch Try Again button only while at least one failed image is selected. */
+    private fun updateRetryButton(binding: FragmentFlashcardGenerationBinding) {
+        val hasSelectedFailures =
+            viewModel.retrySelection.value.any { id -> viewModel.imageStates.value[id] is CardImageState.Failed }
+        binding.retryFailed.isVisible = hasSelectedFailures
     }
 
     private fun updateAddButton(binding: FragmentFlashcardGenerationBinding) {
@@ -263,7 +453,6 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
     companion object {
         const val MIN_CARDS = 1
         const val MAX_CARDS = 50
-        const val DEFAULT_CARD_COUNT = 10
 
         /** Creates the launch intent for [SingleFragmentActivity]. */
         fun getIntent(context: Context): Intent = SingleFragmentActivity.getIntent(context, FlashcardGenerationFragment::class)

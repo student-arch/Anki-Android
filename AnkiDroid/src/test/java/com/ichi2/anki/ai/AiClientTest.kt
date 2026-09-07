@@ -61,6 +61,66 @@ class AiClientTest : RobolectricTest() {
     }
 
     @Test
+    fun `empty completion with finish_reason length explains truncation`() {
+        val body = """{"choices": [{"finish_reason": "length", "message": {"content": null}}]}"""
+        val ex =
+            assertThrows(AiException.Parse::class.java) { AiClient.parseCompletionMessage(body) }
+        assertThat(ex.message!!, org.hamcrest.Matchers.containsString("token limit"))
+    }
+
+    @Test
+    fun `empty completion with content null falls back to default hint`() {
+        val body = """{"choices": [{"finish_reason": "stop", "message": {"content": null}}]}"""
+        val ex =
+            assertThrows(AiException.Parse::class.java) { AiClient.parseCompletionMessage(body) }
+        assertThat(ex.message!!, org.hamcrest.Matchers.containsString("empty completion"))
+    }
+
+    @Test
+    fun `refusal is surfaced as a parse error`() {
+        val body = """{"choices": [{"finish_reason": "stop", "message": {"refusal": "unsafe content"}}]}"""
+        val ex =
+            assertThrows(AiException.Parse::class.java) { AiClient.parseCompletionMessage(body) }
+        assertThat(ex.message!!, org.hamcrest.Matchers.containsString("refused"))
+    }
+
+    @Test
+    fun `content returned as a JSON object is serialized to string`() {
+        val body = """{"choices": [{"message": {"content": {"cards": [{"q": "a"}]}}}]}"""
+        val parsed = AiClient.parseCompletionMessage(body)
+        assertThat(parsed, equalTo("""{"cards":[{"q":"a"}]}"""))
+    }
+
+    @Test
+    fun `Cloudflare catalog returns the complete unfiltered model list`() {
+        val body =
+            """
+            {"result": [
+              {"name": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "task": {"name": "Text Generation"}},
+              {"name": "@cf/black-forest-labs/flux-1-schnell", "task": {"name": "Text-to-Image"}},
+              {"name": "@cf/baai/bge-large-en-v1.5", "task": {"name": "Embeddings"}},
+              {"name": "@cf/openai/gpt-oss-120b", "task": {"name": "Text Generation"}}
+            ]}
+            """.trimIndent()
+        val names = AiClient().parseCatalogModels(body)
+        assertThat(
+            names,
+            containsInAnyOrder(
+                "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                "@cf/black-forest-labs/flux-1-schnell",
+                "@cf/baai/bge-large-en-v1.5",
+                "@cf/openai/gpt-oss-120b",
+            ),
+        )
+    }
+
+    @Test
+    fun `Cloudflare catalog with no models throws`() {
+        val body = """{"result": []}"""
+        assertThrows(AiException.Parse::class.java) { AiClient().parseCatalogModels(body) }
+    }
+
+    @Test
     fun `missing choices throws parse exception`() {
         assertThrows(AiException.Parse::class.java) { AiClient.parseCompletionMessage("""{"choices": []}""") }
         assertThrows(AiException.Parse::class.java) { AiClient.parseCompletionMessage("""{"error": "x"}""") }

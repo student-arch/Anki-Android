@@ -56,5 +56,21 @@
             android:layout_marginTop="8dp"
             android:text="@string/ai_provider_api_key_note"
             android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="@string/ai_provider_models_hint"
+            app:helperTextEnabled="true"
+            app:helperText="@string/ai_provider_models_helper">
+
+            <com.ichi2.ui.TextInputEditField
+                android:id="@+id/models"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textMultiLine"
+                android:minLines="2" />
+        </com.google.android.material.textfield.TextInputLayout>
     </LinearLayout>
 </ScrollView>
