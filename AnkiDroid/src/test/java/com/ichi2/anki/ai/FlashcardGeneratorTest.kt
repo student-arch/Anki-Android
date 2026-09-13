@@ -484,7 +484,9 @@ class FlashcardGeneratorTest : RobolectricTest() {
                         onDelta: suspend (String) -> Unit,
                     ): String {
                         // a duplicate front and a meta question that must both be filtered out
-                        val bad = """{"cards": [{"question": "Duplicate front", "answer": "ok answer here"}, {"question": "What does the material say about X?", "answer": "fine answer here too"}]}"""
+                        val bad =
+                            """{"cards": [{"question": "Duplicate front", "answer": "ok answer here"}, """ +
+                                """"question": "What does the material say about X?", "answer": "fine answer here too"}]}"""
                         onDelta("""{"cards": [{"question": "Duplicate front", "answer": "ok answer here"}]}""")
                         onDelta(bad)
                         return bad

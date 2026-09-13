@@ -86,6 +86,7 @@ import com.ichi2.anki.cardviewer.MediaErrorBehavior.CONTINUE_MEDIA
 import com.ichi2.anki.cardviewer.MediaErrorBehavior.RETRY_MEDIA
 import com.ichi2.anki.cardviewer.MediaErrorHandler
 import com.ichi2.anki.cardviewer.MediaErrorListener
+import com.ichi2.anki.cardviewer.MultiTouchGestureGuard
 import com.ichi2.anki.cardviewer.OnRenderProcessGoneDelegate
 import com.ichi2.anki.cardviewer.RenderedCard
 import com.ichi2.anki.cardviewer.SingleCardSide
@@ -456,6 +457,8 @@ abstract class AbstractFlashcardViewer :
         get() = SystemClock.elapsedRealtime()
     private val gestureListener =
         OnTouchListener { _, event ->
+            // observe the raw stream so pinch-to-zoom cannot be misread as a tap/swipe
+            multiTouchGestureGuard.onTouchEvent(event)
             if (gestureDetector!!.onTouchEvent(event)) {
                 return@OnTouchListener true
             }
@@ -469,6 +472,12 @@ abstract class AbstractFlashcardViewer :
             }
             false
         }
+
+    /**
+     * Suppresses gesture-detector callbacks while the user pinch-zooms the card,
+     * so the pinch cannot answer/flip the card.
+     */
+    private val multiTouchGestureGuard = MultiTouchGestureGuard()
 
     // This is intentionally package-private as it removes the need for synthetic accessors
     @SuppressLint("CheckResult")
@@ -1329,6 +1338,12 @@ abstract class AbstractFlashcardViewer :
         Timber.d("displayCardQuestion()")
         displayAnswer = false
         backButtonPressedToReturn = false
+        val isSameCard = currentCard?.id == lastRenderedCardId
+        if (!isSameCard) {
+            // a different card starts: back to the default zoom
+            lastRenderedCardId = currentCard?.id
+            cardScaleToRestore = null
+        }
         setInterface()
         typeAnswer?.input = ""
         typeAnswer?.updateInfo(getColUnsafe, currentCard!!, resources)
@@ -1541,6 +1556,11 @@ abstract class AbstractFlashcardViewer :
             Timber.w("fillFlashCard() called with no card content")
             return
         }
+        // re-apply the user's pinch zoom before the load: setInitialScale only
+        // takes effect for a page load started after it is set
+        processCardAction { cardWebView: WebView? ->
+            cardWebView?.setInitialScale(cardScaleToRestore?.let { (it * 100).toInt() } ?: 0)
+        }
         processCardAction { cardWebView: WebView? -> loadContentIntoCard(cardWebView, cardContent!!) }
         gestureDetectorImpl.onFillFlashcard()
         if (!displayAnswer) {
@@ -1561,6 +1581,46 @@ abstract class AbstractFlashcardViewer :
                 null,
                 null,
             )
+        }
+    }
+
+    /**
+     * The WebView zoom the user chose with pinch-to-zoom, carried across card
+     * sides: the legacy viewer reloads the full HTML per side ([loadContentIntoCard]),
+     * which would otherwise reset the zoom between question and answer.
+     * Reset when a new card starts ([displayCardQuestion]).
+     */
+    @VisibleForTesting
+    internal var cardScaleToRestore: Float? = null
+        private set
+
+    /** The card whose question side was last rendered; detects card changes. */
+    @VisibleForTesting
+    internal var lastRenderedCardId: CardId? = null
+        private set
+
+    /** Called by [CardViewerWebClient.onScaleChanged]; records the user's pinch zoom. */
+    @VisibleForTesting(otherwise = VisibleForTesting.NONE)
+    internal fun onPinchZoomChangedForTest(newScale: Float) {
+        if (newScale > 0f) cardScaleToRestore = newScale
+    }
+
+    private fun onCardScaleChanged(newScale: Float) {
+        if (newScale > 0f) cardScaleToRestore = newScale
+    }
+
+    /** Resets the card to its default zoom and clears any recorded pinch zoom. */
+    @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
+    internal fun resetCardZoom() {
+        cardScaleToRestore = null
+        processCardAction { cardWebView: WebView? ->
+            // setInitialScale only affects the next load, so use the overview-mode
+            // toggle (as the new study screen's resetZoom does) to zoom out now
+            cardWebView?.apply {
+                setInitialScale(0)
+                settings.loadWithOverviewMode = false
+                settings.loadWithOverviewMode = true
+            }
         }
     }
 
@@ -2071,6 +2131,7 @@ abstract class AbstractFlashcardViewer :
             velocityY: Float,
         ): Boolean {
             Timber.d("onFling")
+            if (multiTouchGestureGuard.shouldSuppressGesture()) return false
 
             // #5741 - A swipe from the top caused delayedHide to be triggered,
             // accepting a gesture and quickly disabling the status bar, which wasn't ideal.
@@ -2110,6 +2171,7 @@ abstract class AbstractFlashcardViewer :
         }
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
+            if (multiTouchGestureGuard.shouldSuppressGesture()) return true
             if (gesturesEnabled) {
                 gestureProcessor.onDoubleTap()
             }
@@ -2119,6 +2181,7 @@ abstract class AbstractFlashcardViewer :
         override fun onSingleTapUp(e: MotionEvent): Boolean = false
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            if (multiTouchGestureGuard.shouldSuppressGesture()) return true
             // Go back to immersive mode if the user had temporarily exited it (and ignore the tap gesture)
             if (onSingleTap()) {
                 return true
@@ -2128,6 +2191,7 @@ abstract class AbstractFlashcardViewer :
         }
 
         protected open fun executeTouchCommand(e: MotionEvent) {
+            if (multiTouchGestureGuard.shouldSuppressGesture()) return
             if (gesturesEnabled && !isSelecting) {
                 val height = touchLayer!!.height
                 val width = touchLayer!!.width
@@ -2404,6 +2468,16 @@ abstract class AbstractFlashcardViewer :
         ): WebResourceResponse? {
             resourceHandler.shouldInterceptRequest(request)?.let { return it }
             return null
+        }
+
+        override fun onScaleChanged(
+            view: WebView?,
+            oldScale: Float,
+            newScale: Float,
+        ) {
+            super.onScaleChanged(view, oldScale, newScale)
+            // record the user's pinch-to-zoom so it survives the per-side reload
+            this@AbstractFlashcardViewer.onCardScaleChanged(newScale)
         }
 
         override fun onReceivedError(

@@ -62,6 +62,7 @@
     <string name="clear_whiteboard" maxLength="28">Clear whiteboard</string>
     <string name="hide_toolbar" maxLength="28">Hide toolbar</string>
     <string name="replay_media" maxLength="28">Replay media</string>
+    <string name="reset_zoom" maxLength="28">Reset zoom</string>
     <string name="leech_suspend_notification">Card marked as leech and suspended</string>
     <string name="leech_notification">Card marked as leech</string>
     <string name="webview_crash_unknown">Unknown error</string>
