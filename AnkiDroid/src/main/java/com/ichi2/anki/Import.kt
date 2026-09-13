@@ -78,6 +78,7 @@ fun AnkiActivity.showImportDialog() {
             importApkg = true,
             importColpkg = true,
             importTextFile = true,
+            importPastedText = true,
         ),
     )
 }
