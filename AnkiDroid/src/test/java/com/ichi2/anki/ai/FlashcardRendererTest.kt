@@ -106,6 +106,78 @@ class FlashcardRendererTest {
     }
 
     @Test
+    fun `mathjax delimiters in the answer are preserved unescaped`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = """The roots are \( x = \frac{-b \pm \sqrt{b^2-4ac}}{2a} \) exactly.""",
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("""\( x = \frac{-b \pm \sqrt{b^2-4ac}}{2a} \)"""))
+    }
+
+    @Test
+    fun `ampersand inside mathjax is not html escaped`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = """\( \begin{pmatrix} a & b \\ c & d \end{pmatrix} \)""",
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("""\( \begin{pmatrix} a & b \\ c & d \end{pmatrix} \)"""))
+    }
+
+    @Test
+    fun `display math in a formula section is not wrapped in pre`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                sections = listOf(CardSection("Formula", """\( E = mc^2 \)""")),
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        // MathJax skips <pre> content entirely, so formulas must render in normal flow
+        assertThat(html, containsString("""<b>Formula</b><br>\( E = mc^2 \)"""))
+    }
+
+    @Test
+    fun `plain formula sections without mathjax still render in pre`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                sections = listOf(CardSection("Given", "V = 12 V\nR = 4 Ohm")),
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("<b>Given</b><pre>V = 12 V\nR = 4 Ohm</pre>"))
+    }
+
+    @Test
+    fun `text around math delimiters is still escaped`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = """a <tag> \( x \) & outside""",
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("&lt;tag&gt;"))
+        assertThat(html, containsString("""&amp; outside"""))
+        assertThat(html, containsString("""\( x \)"""))
+    }
+
+    @Test
+    fun `chem and quantum notation in the answer survive rendering`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = """\( \ce{2H2 + O2 -> 2H2O} \) and \( \ket{\psi} = \alpha\ket{0} + \beta\ket{1} \)""",
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("""\( \ce{2H2 + O2 -> 2H2O} \)"""))
+        assertThat(html, containsString("""\( \ket{\psi} = \alpha\ket{0} + \beta\ket{1} \)"""))
+    }
+
+    @Test
     fun `caption html uses the image caption`() {
         val card =
             GeneratedFlashcard(

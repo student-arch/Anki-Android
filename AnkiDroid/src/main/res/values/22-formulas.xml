@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <!-- Note editor rich formatting -->
+    <!-- "Text color" is not defined here: it duplicates TR.editingTextColor() and
+         is set from code (Toolbar.setupDefaultButtons) -->
+    <string name="format_highlight" maxLength="41" comment="Toolbar button: set the background color of the selected text">Highlight</string>
+    <string name="format_code" maxLength="41" comment="Toolbar button: format the selected text as inline code">Code</string>
+    <string name="format_bullet_list" maxLength="41" comment="Toolbar button: format the selected lines as a bullet list">Bullet list</string>
+    <string name="format_numbered_list" maxLength="41" comment="Dialog option: format the selected lines as a numbered list">Numbered list</string>
+    <string name="format_clear" maxLength="41" comment="Toolbar button: remove colors and formatting from the selected text">Clear formatting</string>
+    <string name="format_list_title" maxLength="41" comment="Title of the dialog choosing a list type">Insert list</string>
+    <string name="insert_mathjax_quantum" maxLength="41" comment="MathJax insert dialog option: quantum Dirac (bra-ket) notation">Quantum notation</string>
+
+    <!-- Import text -->
+    <string name="import_paste_text" maxLength="41" comment="Import dialog entry: paste or type flashcards as text">Paste text</string>
+    <string name="import_text_title" maxLength="41" comment="Title of the paste-text import screen">Import text</string>
+    <string name="import_text_hint" comment="Hint of the material input field">One flashcard per line: front and back separated by a semicolon, tab or " - ".\nOr "Question:" and "Answer:" lines, either in one block or separated by a blank line.</string>
+    <string name="import_text_parse_error">Could not detect any flashcards. Use one card per line, e.g.\n"What is 2+2?; 4"</string>
+    <string name="import_text_preview" maxLength="28" comment="Toolbar menu item: parse the entered text and show the cards found">Preview cards</string>
+    <string name="import_text_add_cards" comment="Button: add the shown cards to the deck">Import cards</string>
+</resources>

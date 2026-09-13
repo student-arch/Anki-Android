@@ -16,3 +16,24 @@ img {
   width: 100%;
   font-family: "Noto Sans Mono";
 }
+/* Long equations and wide matrices scroll instead of overflowing the card. */
+mjx-container {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    padding: 1px 0;
+}
+
+/* Monospace, block-preserving rendering for code snippets inside cards */
+pre,
+code {
+    font-family: "Noto Sans Mono", monospace;
+}
+
+pre {
+    overflow-x: auto;
+    white-space: pre;
+    background-color: rgba(127, 127, 127, 0.1);
+    padding: 6px;
+    border-radius: 4px;
+}

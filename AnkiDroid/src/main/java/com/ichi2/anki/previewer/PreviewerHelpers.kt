@@ -46,6 +46,8 @@ fun stdHtml(
         listOf(
             "backend/js/jquery.min.js",
             "backend/js/mathjax.js",
+            // enables mhchem/braket/physics/color; must run between mathjax.js and the bundle
+            "scripts/mathjax-packages.js",
             "backend/js/vendor/mathjax/tex-chtml-full.js",
             "backend/js/reviewer.js",
             "scripts/ankidroid-cardviewer.js",
