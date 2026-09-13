@@ -321,10 +321,20 @@ open class AiClient(
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val CONNECT_TIMEOUT_SECONDS = 20L
-        private const val READ_TIMEOUT_SECONDS = 120L
 
-        /** Generous completion budget: room for reasoning models' hidden reasoning + the answer. */
-        private const val MAX_COMPLETION_TOKENS = 4096
+        /**
+         * Slow reasoning models served through OpenAI-compatible providers (e.g. glm-5.3-free
+         * on Token Router) take several minutes for one generation; the previous 120s read
+         * timeout aborted such requests before the response arrived.
+         */
+        internal const val READ_TIMEOUT_SECONDS = 480L
+
+        /**
+         * Generous completion budget: reasoning models spend most of it on hidden
+         * reasoning (glm-5.3-free used ~3700 of the former 4096 budget and truncated
+         * the JSON mid-card, finish_reason=length) before any card content appears.
+         */
+        internal const val MAX_COMPLETION_TOKENS = 16384
 
         /**
          * Resolves [path] against [baseUrl], treating the base URL's last segment as a directory.

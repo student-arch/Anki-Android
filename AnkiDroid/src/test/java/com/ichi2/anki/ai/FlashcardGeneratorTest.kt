@@ -213,6 +213,93 @@ class FlashcardGeneratorTest : RobolectricTest() {
         }
 
     @Test
+    fun `prompt instructs the model to wrap math in MathJax delimiters`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "material", 1)
+
+            val prompt = capturedPrompt.orEmpty()
+            assertThat(prompt, containsString("""\( ... \)"""))
+            assertThat(prompt, containsString("""\[ ... \]"""))
+            assertThat(prompt, containsString("""\ce{H2O}"""))
+            assertThat(prompt, containsString("""\ket{\psi}"""))
+            assertThat(prompt, containsString("""\braket{\phi}{\psi}"""))
+        }
+
+    /**
+     * A bare topic (as the input hint invites: "describe a topic, e.g. Key concepts of
+     * photosynthesis") contains no learnable content, so the strict grounding rules make
+     * models return an empty card list: with nothing grounded to extract, "never invent"
+     * forbids any card. Topic-style input must switch the prompt to topical mode, where
+     * the model may draw on its own knowledge of the subject.
+     */
+    @Test
+    fun `topic input relaxes the material-only grounding rules`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "Qubit concept", 1)
+
+            val prompt = capturedPrompt.orEmpty()
+            assertThat(prompt, containsString("topic"))
+            // the strict rule text must not be sent for topic input
+            assertThat(prompt.contains("do not use external knowledge"), equalTo(false))
+        }
+
+    @Test
+    fun `full material keeps the material-only grounding rules`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(
+                provider,
+                "m",
+                "Ohm's law states that V = IR. Voltage equals current times resistance.",
+                1,
+            )
+
+            val prompt = capturedPrompt.orEmpty()
+            assertThat(prompt, containsString("do not use external knowledge"))
+        }
+
+    @Test
     fun `prompt omits image instructions when image generation is disabled`() =
         runTest {
             var capturedPrompt: String? = null
@@ -251,6 +338,82 @@ class FlashcardGeneratorTest : RobolectricTest() {
             cards.forEach { card ->
                 assertThat(card.image, equalTo(CardImage.None))
                 assertThat(card.imageUrl, equalTo(null))
+            }
+        }
+
+    /** Fails the first N calls with a transient error, then succeeds — like a busy gateway. */
+    private inner class FlakyThenWorkingClient(
+        private val failures: List<Exception>,
+    ) : AiClient() {
+        var calls = 0
+
+        override suspend fun chatCompletion(
+            provider: AiProvider,
+            modelId: String,
+            systemPrompt: String,
+            userPrompt: String,
+            jsonMode: Boolean,
+        ): String {
+            calls++
+            failures.getOrNull(calls - 1)?.let { throw it }
+            return cardsJson("What is a valid first question about the topic?")
+        }
+    }
+
+    @Test
+    fun `transient server overload is retried and succeeds`() =
+        runTest {
+            val client =
+                FlakyThenWorkingClient(
+                    listOf(AiException.Server("HTTP 503: gateway overloaded")),
+                )
+            val cards = FlashcardGenerator(client).generate(provider, "m", "material", 1)
+            assertThat(cards, hasSize(1))
+            assertThat(client.calls, equalTo(2))
+        }
+
+    @Test
+    fun `transient network abort is retried and succeeds`() =
+        runTest {
+            val client =
+                FlakyThenWorkingClient(
+                    listOf(
+                        AiException.Network("Software caused connection abort"),
+                        AiException.Server("HTTP 503: cache-aware admission rejected a request"),
+                    ),
+                )
+            val cards = FlashcardGenerator(client).generate(provider, "m", "material", 1)
+            assertThat(cards, hasSize(1))
+            assertThat(client.calls, equalTo(3))
+        }
+
+    @Test
+    fun `bad request is not retried`() =
+        runTest {
+            val client =
+                FlakyThenWorkingClient(
+                    listOf(AiException.BadRequest("HTTP 400: invalid model")),
+                )
+            try {
+                FlashcardGenerator(client).generate(provider, "m", "material", 1)
+                throw AssertionError("expected BadRequest to propagate")
+            } catch (e: AiException.BadRequest) {
+                assertThat(client.calls, equalTo(1))
+            }
+        }
+
+    @Test
+    fun `persistent overload surfaces as an error after exhausting retries`() =
+        runTest {
+            val client =
+                FlakyThenWorkingClient(
+                    List(4) { AiException.Server("HTTP 503: gateway overloaded") },
+                )
+            try {
+                FlashcardGenerator(client).generate(provider, "m", "material", 1)
+                throw AssertionError("expected Server error to propagate")
+            } catch (e: AiException.Server) {
+                assertThat(client.calls, equalTo(4))
             }
         }
 }

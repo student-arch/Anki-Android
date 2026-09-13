@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.containsInAnyOrder
 import org.hamcrest.Matchers.equalTo
+import org.json.JSONObject
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -171,5 +172,54 @@ class AiClientTest : RobolectricTest() {
     @Test
     fun `falls back to body when no error message`() {
         assertThat(AiClient.extractErrorMessage("gateway timeout"), equalTo("gateway timeout"))
+    }
+
+    /**
+     * A local OpenAI-compatible server capturing the request AiClient sends, and replying with
+     * the given [responseBody] so tests can assert on both sides of the conversation.
+     */
+    private class CapturingServer(
+        private val responseBody: String = """{"choices": [{"message": {"content": "ok"}}]}""",
+    ) {
+        val requests = mutableListOf<JSONObject>()
+        val server =
+            com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress(0), 0).apply {
+                createContext("/v1/chat/completions") { exchange ->
+                    requests.add(JSONObject(exchange.requestBody.readBytes().decodeToString()))
+                    exchange.sendResponseHeaders(200, responseBody.toByteArray().size.toLong())
+                    exchange.responseBody.use { it.write(responseBody.toByteArray()) }
+                }
+                start()
+            }
+
+        fun stop() = server.stop(0)
+    }
+
+    @Test
+    fun `completion request sends a budget large enough for reasoning models`() =
+        runBlocking {
+            // glm-5.3-free on Token Router spent 3703 of 4096 tokens on hidden reasoning and
+            // truncated the JSON (finish_reason=length); reasoning models need a much larger
+            // budget than the visible content alone
+            val server = CapturingServer()
+            try {
+                AiClient().chatCompletion(
+                    AiProvider(id = "t", name = "T", baseUrl = "http://localhost:${server.server.address.port}/v1", apiKey = "k"),
+                    "z-ai/glm-5.3-free",
+                    "system",
+                    "user",
+                )
+                assertThat(server.requests.single().getInt("max_tokens"), equalTo(AiClient.MAX_COMPLETION_TOKENS))
+                assertThat(AiClient.MAX_COMPLETION_TOKENS >= 16384, equalTo(true))
+            } finally {
+                server.stop()
+            }
+        }
+
+    @Test
+    fun `read timeout is long enough for slow reasoning models`() {
+        // a full generation with glm-5.3-free measured over 4 minutes until the final token;
+        // the previous 120s read timeout aborted such requests mid-flight
+        assertThat(AiClient.READ_TIMEOUT_SECONDS >= 480, equalTo(true))
     }
 }

@@ -2,6 +2,7 @@
 
 package com.ichi2.anki.ai
 
+import kotlinx.coroutines.delay
 import timber.log.Timber
 
 /**
@@ -18,6 +19,9 @@ open class FlashcardGenerator(
      * Cards that fail the quality gate ([isQualityCard]) are dropped — the model is retried once
      * if too few usable cards come back — so the result can contain fewer cards than [count]
      * rather than vague or unsupported ones.
+     *
+     * Transient provider failures (HTTP 5xx overload, network aborts) are retried with a short
+     * backoff: busy gateways commonly reject the first request but serve the retry.
      *
      * When [includeImages] is false, the prompt does not ask for image prompts and every parsed
      * card has its image metadata stripped, so no card carries or references an image.
@@ -36,15 +40,20 @@ open class FlashcardGenerator(
         Timber.i("generating %d flashcards with %s/%s", count, provider.name, modelId)
         val unique = LinkedHashMap<String, GeneratedFlashcard>()
         var attempts = 0
+        var transientRetries = 0
         while (attempts < MAX_ATTEMPTS) {
             attempts++
             val response =
-                client.chatCompletion(
-                    provider = provider,
-                    modelId = modelId,
-                    systemPrompt = SYSTEM_PROMPT,
-                    userPrompt = buildUserPrompt(material, count, includeImages),
-                )
+                try {
+                    requestGeneration(provider, modelId, material, count, includeImages)
+                } catch (e: AiException) {
+                    if (!isTransient(e) || transientRetries >= MAX_TRANSIENT_RETRIES) throw e
+                    transientRetries++
+                    Timber.w(e, "transient AI failure (retry %d/%d), retrying", transientRetries, MAX_TRANSIENT_RETRIES)
+                    delay(RETRY_DELAY_MS * transientRetries)
+                    attempts--
+                    continue
+                }
             FlashcardParser
                 .parse(response)
                 .forEach { card ->
@@ -64,6 +73,27 @@ open class FlashcardGenerator(
         // the model may emit image metadata despite the instruction; never keep it when off
         return if (includeImages) cards else cards.map { it.copy(imageUrl = null, image = CardImage.None) }
     }
+
+    /** Performs one chat-completion request for the generation step. */
+    private suspend fun requestGeneration(
+        provider: AiProvider,
+        modelId: String,
+        material: String,
+        count: Int,
+        includeImages: Boolean,
+    ): String =
+        client.chatCompletion(
+            provider = provider,
+            modelId = modelId,
+            systemPrompt = SYSTEM_PROMPT,
+            userPrompt = buildUserPrompt(material, count, includeImages),
+        )
+
+    /**
+     * Whether [e] is a transient provider failure worth retrying: server overload (HTTP 5xx)
+     * or a network-level abort. Client errors (HTTP 4xx) and parse failures are permanent.
+     */
+    private fun isTransient(e: AiException): Boolean = e is AiException.Server || e is AiException.Network
 
     /**
      * Quality gate applied to every parsed card, guarding the model-side instructions with a
@@ -91,6 +121,12 @@ open class FlashcardGenerator(
 
         /** Extra generation attempts when the model returns fewer cards than requested. */
         private const val MAX_ATTEMPTS = 2
+
+        /** Extra attempts for transient provider failures (5xx overload, network aborts). */
+        private const val MAX_TRANSIENT_RETRIES = 3
+
+        /** Base delay before retrying a transient failure; grows linearly per attempt. */
+        private const val RETRY_DELAY_MS = 1_000L
 
         /** A question shorter than this cannot name a specific concept. */
         private const val MIN_FRONT_LENGTH = 10
@@ -149,6 +185,44 @@ open class FlashcardGenerator(
                 "- Never pad the output: if the material cannot support the requested number of " +
                 "strong cards, return fewer. A vague, trivial, off-topic or invented card is worse " +
                 "than a missing one."
+
+        /**
+         * Rules for topic-style input (a short subject name, as the input hint invites: "describe
+         * a topic, e.g. Key concepts of photosynthesis"). A bare topic offers nothing to
+         * extract, so under the strict grounding rules well-behaved models returned an empty
+         * card list; here the model may draw on its own knowledge of the subject instead.
+         */
+        private const val TOPIC_RULES =
+            "Core rules:\n" +
+                "- The user named a topic, not full learning material. Create flashcards covering " +
+                "the KEY CONCEPTS of this topic, using your own accurate knowledge of it.\n" +
+                "- Where other instructions below mention \"the material\", treat your accurate " +
+                "knowledge of the topic as the source.\n" +
+                "- Be factually correct and precise; include the standard definitions, formulas, " +
+                "units and terminology of the topic where they apply.\n" +
+                "- If you do not reliably know the topic, return fewer cards rather than inventing.\n" +
+                "- Every card must be SELF-CONTAINED: never mention \"the topic\" in a way that " +
+                "only makes sense with the original input; each card must stand alone.\n" +
+                "- Focus on important, learnable information; do not create unnecessary cards.\n" +
+                "- Never pad the output: prefer fewer strong cards over weak ones."
+
+        /**
+         * Math is rendered by the viewer's bundled MathJax, so the model MUST wrap equations in
+         * MathJax delimiters — raw LaTeX without them displays as literal text.
+         * All the packages below are compiled into the app's MathJax build.
+         */
+        private const val MATH_RULES =
+            "Mathematical notation rules (the app renders MathJax with LaTeX, mhchem and braket):\n" +
+                "- Wrap EVERY formula, equation, expression and single symbol in MathJax delimiters: " +
+                "inline math as \\( ... \\) and important/displayed equations as \\[ ... \\].\n" +
+                "- Chemistry: use mhchem — \\( \\ce{H2O} \\), \\( \\ce{2H2 + O2 -> 2H2O} \\), " +
+                "\\( \\ce{SO4^2-} \\); never write chemical subscripts with _ or ^ outside \\ce{...}.\n" +
+                "- Quantum/Dirac notation: use braket — \\( \\ket{\\psi} = \\alpha\\ket{0} + \\beta\\ket{1} \\), " +
+                "\\( \\braket{\\phi}{\\psi} \\), \\( \\braket{\\phi}{\\psi} = \\phi^{\\dagger}\\psi \\).\n" +
+                "- Never emit Markdown math ($...$, $$...$$), Unicode pseudo-math or HTML entities; " +
+                "always real LaTeX inside the delimiters: \\frac{...}{...}, \\sqrt{...}, " +
+                "\\int_{a}^{b}, \\sum_{i=1}^{n}, \\lim_{x \\to 0}, \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}.\n" +
+                "- Code stays as plain text (it is rendered in a monospace block); do not put code in math delimiters."
 
         private const val SECTION_SPEC =
             "Each card is a JSON object. Always include \"question\" and \"answer\"; include any of " +
@@ -222,26 +296,49 @@ open class FlashcardGenerator(
                 "Double-check every card for factual accuracy before including it; drop any card " +
                 "you cannot ground in the material."
 
-        private fun countInstruction(count: Int): String =
-            if (count == COUNT_AUTO) {
-                "Generate enough cards to cover the important information in the material; " +
+        /**
+         * Whether [material] is a bare topic (a short subject name like "Qubit concept" or
+         * "Key concepts of photosynthesis") rather than actual learning content. Topic-style
+         * input has no sentences to extract from, so the strict material-only grounding
+         * rules would leave the model nothing to build cards on.
+         */
+        internal fun isTopicInput(material: String): Boolean {
+            val trimmed = material.trim()
+            if (trimmed.length > MAX_TOPIC_LENGTH) return false
+            // full material contains sentence punctuation; a topic is a noun phrase
+            return !trimmed.contains('.') && !trimmed.contains(';') && !trimmed.contains('\n')
+        }
+
+        private const val MAX_TOPIC_LENGTH = 120
+
+        private fun countInstruction(
+            count: Int,
+            isTopic: Boolean,
+        ): String {
+            val source = if (isTopic) "the key concepts of the topic" else "the material"
+            return if (count == COUNT_AUTO) {
+                "Generate enough cards to cover the important information about $source; " +
                     "prefer high-quality cards over unnecessary quantity."
             } else {
-                "Generate up to $count flashcards from the following material. Cover as many " +
-                    "distinct, important aspects of the material as it supports, by asking " +
+                "Generate up to $count flashcards about $source. Cover as many " +
+                    "distinct, important aspects as possible, by asking " +
                     "different question types (definition, conceptual, formula, calculation, " +
                     "application, comparison, process, diagram, troubleshooting) — one concept " +
-                    "per card, every card strictly derived from the material. If the material " +
-                    "cannot support $count strong cards, return fewer rather than padding with " +
-                    "vague, trivial or generic cards; never invent content to reach the count."
+                    "per card. If the topic cannot support $count strong cards, return fewer " +
+                    "rather than padding with vague, trivial or generic cards; never invent " +
+                    "content to reach the count."
             }
+        }
 
         private fun buildUserPrompt(
             material: String,
             count: Int,
             includeImages: Boolean,
-        ): String =
-            "${countInstruction(count)}\n" +
+        ): String {
+            val isTopic = isTopicInput(material)
+            val coreRules = if (isTopic) TOPIC_RULES else CORE_RULES
+            val sourceLabel = if (isTopic) "Topic" else "Material"
+            return "${countInstruction(count, isTopic)}\n" +
                 "Respond with JSON only, in this shape (omit unsupported sections" +
                 "${if (includeImages) "; image_prompt is required and may be an empty string" else ""}):\n" +
                 "{\"cards\": [{\"subject\": \"...\", \"topic\": \"...\", \"question\": \"...\", " +
@@ -249,10 +346,11 @@ open class FlashcardGenerator(
                 "\"variables\": [\"...\"], \"units\": [\"...\"], \"example\": \"...\", " +
                 "\"common_mistake\": \"...\", \"difficulty\": \"Easy\", \"tags\": [\"...\"]" +
                 "${if (includeImages) ", \"image_prompt\": \"<diagram instruction or empty string>\"" else ""}]}]}\n\n" +
-                "$CORE_RULES\n\n$SECTION_SPEC\n\n" +
+                "$coreRules\n\n$MATH_RULES\n\n$SECTION_SPEC\n\n" +
                 "${if (includeImages) IMAGE_SPEC else NO_IMAGE_SPEC}\n\n" +
                 "$QUALITY_RULES\n\n" +
-                "Material:\n$material"
+                "$sourceLabel:\n$material"
+        }
 
         /** Tells the model (which may emit image fields anyway) that no image is wanted. */
         private const val NO_IMAGE_SPEC =
