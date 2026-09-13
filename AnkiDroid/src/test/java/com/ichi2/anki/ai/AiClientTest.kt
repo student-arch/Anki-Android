@@ -7,6 +7,7 @@ import com.ichi2.anki.RobolectricTest
 import kotlinx.coroutines.runBlocking
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.containsInAnyOrder
+import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.json.JSONObject
 import org.junit.Assert.assertThrows
@@ -222,4 +223,76 @@ class AiClientTest : RobolectricTest() {
         // the previous 120s read timeout aborted such requests mid-flight
         assertThat(AiClient.READ_TIMEOUT_SECONDS >= 480, equalTo(true))
     }
+
+    /**
+     * A local OpenAI-compatible server replying with a Server-Sent-Events stream of the
+     * shape Token Router/OpenAI emit for `stream: true`: one `data:` line per delta with a
+     * partial `choices[0].delta.content`, terminated by `data: [DONE]`.
+     */
+    private class StreamingServer(
+        private val deltas: List<String>,
+    ) {
+        val requests = mutableListOf<JSONObject>()
+        val server =
+            com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress(0), 0).apply {
+                createContext("/v1/chat/completions") { exchange ->
+                    requests.add(JSONObject(exchange.requestBody.readBytes().decodeToString()))
+                    exchange.sendResponseHeaders(200, 0)
+                    exchange.responseBody.use { out ->
+                        deltas.forEach { delta ->
+                            val chunk =
+                                JSONObject()
+                                    .put(
+                                        "choices",
+                                        org.json.JSONArray().put(
+                                            JSONObject()
+                                                .put("delta", JSONObject().put("content", delta))
+                                                .put("finish_reason", JSONObject.NULL),
+                                        ),
+                                    )
+                            out.write("data: $chunk\n\n".toByteArray())
+                            out.flush()
+                        }
+                        out.write(
+                            """data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+
+""".toByteArray(),
+                        )
+                        out.write("data: [DONE]\n\n".toByteArray())
+                        out.flush()
+                    }
+                }
+                start()
+            }
+
+        fun stop() = server.stop(0)
+    }
+
+    @Test
+    fun `streaming completion delivers accumulated content per delta`() =
+        runBlocking {
+            // progressive display requires the client to surface each chunk as it arrives,
+            // so cards appear on screen before the response completes
+            val server =
+                StreamingServer(
+                    listOf("""{"cards": [{"question": "Q1", """, """"answer": "A1"}}, """),
+                )
+            try {
+                val seen = mutableListOf<String>()
+                AiClient().chatCompletionStream(
+                    AiProvider(id = "t", name = "T", baseUrl = "http://localhost:${server.server.address.port}/v1", apiKey = "k"),
+                    "m",
+                    "s",
+                    "u",
+                ) { accumulated -> seen.add(accumulated) }
+
+                // the first accumulated snapshot must already contain the first card's question,
+                // proving the callback fires before the response finishes
+                assertThat(seen.first(), containsString("Q1"))
+                assertThat(seen.last(), containsString("answer"))
+                assertThat(server.requests.single().getBoolean("stream"), equalTo(true))
+            } finally {
+                server.stop()
+            }
+        }
 }

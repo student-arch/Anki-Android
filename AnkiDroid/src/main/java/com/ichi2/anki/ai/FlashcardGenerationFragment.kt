@@ -103,8 +103,11 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
 
         viewModel.uiState
             .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
-            .onEach { state -> render(binding, state) }
-            .launchIn(viewLifecycleOwner.lifecycleScope)
+            .onEach { state ->
+                render(binding, state)
+                // the review list keeps growing while the batch streams in
+                if (state is GenerationUiState.Reviewing) renderGenerationProgress(binding)
+            }.launchIn(viewLifecycleOwner.lifecycleScope)
 
         viewModel.error
             .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
@@ -119,6 +122,11 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
         viewModel.imageStates
             .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
             .onEach { renderReviewCards(binding) }
+            .launchIn(viewLifecycleOwner.lifecycleScope)
+        // streaming progress banner: "Generating 5/20…" while cards keep arriving
+        viewModel.generationProgress
+            .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .onEach { renderGenerationProgress(binding) }
             .launchIn(viewLifecycleOwner.lifecycleScope)
         viewModel.retrySelection
             .flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
@@ -419,6 +427,18 @@ class FlashcardGenerationFragment : Fragment(R.layout.fragment_flashcard_generat
         val count = viewModel.acceptedCards().size
         binding.addCards.text = resources.getQuantityString(R.plurals.ai_add_cards, count, count)
         binding.addCards.isEnabled = count > 0
+    }
+
+    /** Shows the streaming banner and "Generating ready/requested…" while the batch is in flight. */
+    private fun renderGenerationProgress(binding: FragmentFlashcardGenerationBinding) {
+        val progress = viewModel.generationProgress.value
+        val generating = viewModel.isGenerating
+        binding.generationProgressBanner.isVisible = generating && progress != null
+        if (generating && progress != null) {
+            binding.generationProgressText.text = getString(R.string.ai_generation_progress, progress.ready, progress.requested)
+            binding.generationProgressBar.max = progress.requested.coerceAtLeast(1)
+            binding.generationProgressBar.setProgressCompat(progress.ready, true)
+        }
     }
 
     /** Shows a dialog editing the front/back of [card]; saves back into the review list. */

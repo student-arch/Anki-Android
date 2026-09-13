@@ -90,6 +90,63 @@ open class FlashcardGenerator(
         )
 
     /**
+     * Streaming variant of [generate]: each card is passed to [onCard] the moment it completes
+     * on the wire (parsed from the accumulated response after every delta), while generation
+     * continues in the background. Cards already delivered are never re-emitted.
+     *
+     * The base implementation streams via [AiClient.chatCompletionStream]; providers without
+     * SSE support return the whole body at once, whose cards are delivered from the final
+     * text — degrading gracefully to all-at-once display.
+     *
+     * @return all emitted cards, in emission order
+     * @throws AiException if the request fails
+     */
+    open suspend fun generateStream(
+        provider: AiProvider,
+        modelId: String,
+        material: String,
+        count: Int,
+        includeImages: Boolean = true,
+        onCard: suspend (GeneratedFlashcard) -> Unit,
+    ): List<GeneratedFlashcard> {
+        Timber.i("streaming %d flashcards with %s/%s", count, provider.name, modelId)
+        val emitted = LinkedHashMap<String, GeneratedFlashcard>()
+
+        /** Parses [text] and delivers every passing card not yet emitted. */
+        suspend fun deliverFrom(text: String) {
+            FlashcardParser
+                .parse(text)
+                .forEach { card ->
+                    if (isQualityCard(card)) {
+                        val fresh = emitted.putIfAbsent(card.front, card) == null
+                        if (fresh) {
+                            if (includeImages) {
+                                onCard(card)
+                            } else {
+                                // never deliver image metadata when images are off
+                                onCard(card.copy(imageUrl = null, image = CardImage.None))
+                            }
+                        }
+                    } else {
+                        Timber.i("dropping low-quality card: %s", card.front.take(80))
+                    }
+                }
+        }
+        val finalText =
+            client.chatCompletionStream(
+                provider = provider,
+                modelId = modelId,
+                systemPrompt = SYSTEM_PROMPT,
+                userPrompt = buildUserPrompt(material, count, includeImages),
+            ) { accumulated -> deliverFrom(accumulated) }
+        // providers without SSE support return the whole body without invoking the delta
+        // callback; the final text still yields its cards through the same path
+        deliverFrom(finalText)
+        if (emitted.isEmpty()) Timber.w("no flashcards could be parsed from the stream")
+        return emitted.values.toList()
+    }
+
+    /**
      * Whether [e] is a transient provider failure worth retrying: server overload (HTTP 5xx)
      * or a network-level abort. Client errors (HTTP 4xx) and parse failures are permanent.
      */

@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.anEmptyMap
+import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.containsInAnyOrder
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
@@ -42,6 +43,19 @@ class FlashcardGenerationViewModelTest : RobolectricTest() {
             count: Int,
             includeImages: Boolean,
         ): List<GeneratedFlashcard> = List(count) { index -> GeneratedFlashcard(front = "Front $index", back = "Back $index") }
+
+        override suspend fun generateStream(
+            provider: AiProvider,
+            modelId: String,
+            material: String,
+            count: Int,
+            includeImages: Boolean,
+            onCard: suspend (GeneratedFlashcard) -> Unit,
+        ): List<GeneratedFlashcard> {
+            val cards = generate(provider, modelId, material, count, includeImages)
+            cards.forEach { onCard(it) }
+            return cards
+        }
     }
 
     @Before
@@ -90,6 +104,122 @@ class FlashcardGenerationViewModelTest : RobolectricTest() {
             assertIs<GenerationUiState.Reviewing>(state)
             assertThat(state.cards, hasSize(10))
             assertThat(viewModel.acceptedIds.value, hasSize(0))
+        }
+
+    /**
+     * A generator that streams cards one by one, as the real streaming client does: each
+     * [FlashcardGenerator.generateStream] emission must immediately update the review list
+     * instead of waiting for the whole batch. After the first card, generation pauses on
+     * [gate] until the test opens it, mirroring a slow provider still generating in the
+     * background while the user already reads card 1.
+     */
+    private class ProgressiveGenerator(
+        private val gate: CompletableDeferred<Unit>? = null,
+    ) : FlashcardGenerator(AiClient()) {
+        override suspend fun generate(
+            provider: AiProvider,
+            modelId: String,
+            material: String,
+            count: Int,
+            includeImages: Boolean,
+        ): List<GeneratedFlashcard> = emptyList()
+
+        override suspend fun generateStream(
+            provider: AiProvider,
+            modelId: String,
+            material: String,
+            count: Int,
+            includeImages: Boolean,
+            onCard: suspend (GeneratedFlashcard) -> Unit,
+        ): List<GeneratedFlashcard> {
+            val cards = List(count) { index -> GeneratedFlashcard(front = "Front $index", back = "Back $index") }
+            cards.forEachIndexed { index, card ->
+                if (index == 1) gate?.await()
+                onCard(card)
+            }
+            return cards
+        }
+    }
+
+    @Test
+    fun `streamed cards appear in review one by one while generation continues`() =
+        runTest {
+            // generation pauses after card 1: the user must already see it in review
+            val gate = CompletableDeferred<Unit>()
+            val progressive =
+                FlashcardGenerationViewModel(
+                    ApplicationProvider.getApplicationContext(),
+                    ProgressiveGenerator(gate),
+                )
+            progressive.generate("photosynthesis", 5)
+
+            RobolectricTest.advanceRobolectricLooperUntil(condition = {
+                progressive.uiState.value is GenerationUiState.Reviewing
+            })
+            val reviewing = progressive.uiState.value
+            assertIs<GenerationUiState.Reviewing>(reviewing)
+            assertThat(reviewing.cards.size, equalTo(1))
+            assertThat(progressive.isGenerating, equalTo(true))
+            assertThat(progressive.generationProgress.value, equalTo(GenerationProgress(ready = 1, requested = 5)))
+
+            // resume the background generation; remaining cards keep arriving in order
+            gate.complete(Unit)
+            RobolectricTest.advanceRobolectricLooperUntil(condition = { !progressive.isGenerating })
+            val state = progressive.uiState.value
+            assertIs<GenerationUiState.Reviewing>(state)
+            assertThat(state.cards, hasSize(5))
+            assertThat(state.cards.map { it.front }, contains("Front 0", "Front 1", "Front 2", "Front 3", "Front 4"))
+        }
+
+    @Test
+    fun `generation progress reports streamed cards over the requested count`() =
+        runTest {
+            val progressive =
+                FlashcardGenerationViewModel(
+                    ApplicationProvider.getApplicationContext(),
+                    ProgressiveGenerator(),
+                )
+            progressive.generate("photosynthesis", 20)
+
+            RobolectricTest.advanceRobolectricLooperUntil(condition = { !progressive.isGenerating })
+            val progress = progressive.generationProgress.value
+            assertThat(progress, equalTo(GenerationProgress(ready = 20, requested = 20)))
+        }
+
+    @Test
+    fun `generation error during streaming keeps already streamed cards for review`() =
+        runTest {
+            val failing =
+                object : FlashcardGenerator(AiClient()) {
+                    override suspend fun generateStream(
+                        provider: AiProvider,
+                        modelId: String,
+                        material: String,
+                        count: Int,
+                        includeImages: Boolean,
+                        onCard: suspend (GeneratedFlashcard) -> Unit,
+                    ): List<GeneratedFlashcard> {
+                        onCard(GeneratedFlashcard(front = "Q1", back = "A1"))
+                        throw AiException.Server("HTTP 503: overload")
+                    }
+
+                    override suspend fun generate(
+                        provider: AiProvider,
+                        modelId: String,
+                        material: String,
+                        count: Int,
+                        includeImages: Boolean,
+                    ): List<GeneratedFlashcard> = emptyList()
+                }
+            val vm = FlashcardGenerationViewModel(ApplicationProvider.getApplicationContext(), failing)
+            vm.generate("photosynthesis", 5)
+
+            RobolectricTest.advanceRobolectricLooperUntil(condition = { !vm.isGenerating })
+            // the streamed card stays reviewable; only the failure is reported
+            val state = vm.uiState.value
+            assertIs<GenerationUiState.Reviewing>(state)
+            assertThat(state.cards, hasSize(1))
+            assertThat(vm.error.value, instanceOf(GenerationError::class.java))
         }
 
     @Test
@@ -732,6 +862,19 @@ class FlashcardGenerationViewModelTest : RobolectricTest() {
                         requested += "${provider.id}/$modelId"
                         return listOf(GeneratedFlashcard(front = "Q", back = "A"))
                     }
+
+                    override suspend fun generateStream(
+                        provider: AiProvider,
+                        modelId: String,
+                        material: String,
+                        count: Int,
+                        includeImages: Boolean,
+                        onCard: suspend (GeneratedFlashcard) -> Unit,
+                    ): List<GeneratedFlashcard> {
+                        val cards = generate(provider, modelId, material, count, includeImages)
+                        cards.forEach { onCard(it) }
+                        return cards
+                    }
                 }
             val vm = FlashcardGenerationViewModel(ApplicationProvider.getApplicationContext(), generator)
 
@@ -917,6 +1060,19 @@ class FlashcardGenerationViewModelTest : RobolectricTest() {
                             },
                     ),
                 )
+            }
+
+            override suspend fun generateStream(
+                provider: AiProvider,
+                modelId: String,
+                material: String,
+                count: Int,
+                includeImages: Boolean,
+                onCard: suspend (GeneratedFlashcard) -> Unit,
+            ): List<GeneratedFlashcard> {
+                val cards = generate(provider, modelId, material, count, includeImages)
+                cards.forEach { onCard(it) }
+                return cards
             }
         }
 
