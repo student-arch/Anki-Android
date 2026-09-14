@@ -339,6 +339,7 @@ class TranslationTest : RobolectricTest() {
                 "Answer buttons", // R.string.answer_buttons | TR.statisticsAnswerButtonsTitle()
                 "Choose deck", // R.string.ai_choose_deck | TR.qtMiscChooseDeck()
                 "Follow system", // R.string.theme_follow_system | TR.preferencesThemeFollowSystem()
+                "Reset zoom", // R.string.reset_zoom | TR.editingImageOcclusionZoomReset()
                 "Select all", // R.string.card_browser_select_all | TR.editingImageOcclusionSelectAll()
                 "Show answer", // R.string.show_answer
                 // TR.studyingShowAnswer()

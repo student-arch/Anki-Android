@@ -143,6 +143,7 @@ object AnalyticsConstants {
             R.string.custom_button_tags_key,
             R.string.custom_button_add_card_key,
             R.string.custom_button_replay_key,
+            R.string.custom_button_reset_zoom_key,
             R.string.custom_button_card_info_key,
             R.string.custom_button_previous_card_info_key,
             R.string.custom_button_select_tts_key,

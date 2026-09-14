@@ -16,9 +16,10 @@ open class FlashcardGenerator(
     /**
      * Asks [provider]/[modelId] to produce flashcards for [material].
      *
-     * Cards that fail the quality gate ([isQualityCard]) are dropped — the model is retried once
-     * if too few usable cards come back — so the result can contain fewer cards than [count]
-     * rather than vague or unsupported ones.
+     * The user chose the exact number of cards, so the generator keeps making follow-up
+     * requests until [count] unique cards pass the quality gate ([isQualityCard]): each
+     * follow-up asks for only the missing cards and lists the questions already generated
+     * so none are repeated. Duplicates and low-quality cards are dropped.
      *
      * Transient provider failures (HTTP 5xx overload, network aborts) are retried with a short
      * backoff: busy gateways commonly reject the first request but serve the retry.
@@ -39,21 +40,23 @@ open class FlashcardGenerator(
     ): List<GeneratedFlashcard> {
         Timber.i("generating %d flashcards with %s/%s", count, provider.name, modelId)
         val unique = LinkedHashMap<String, GeneratedFlashcard>()
-        var attempts = 0
         var transientRetries = 0
-        while (attempts < MAX_ATTEMPTS) {
-            attempts++
+        var requests = 0
+        while (count == COUNT_AUTO || unique.size < count) {
+            if (requests >= MAX_REQUESTS) break
+            requests++
             val response =
                 try {
-                    requestGeneration(provider, modelId, material, count, includeImages)
+                    requestGeneration(provider, modelId, material, count, includeImages, generatedFronts = unique.keys)
                 } catch (e: AiException) {
                     if (!isTransient(e) || transientRetries >= MAX_TRANSIENT_RETRIES) throw e
                     transientRetries++
                     Timber.w(e, "transient AI failure (retry %d/%d), retrying", transientRetries, MAX_TRANSIENT_RETRIES)
                     delay(RETRY_DELAY_MS * transientRetries)
-                    attempts--
+                    requests--
                     continue
                 }
+            val before = unique.size
             FlashcardParser
                 .parse(response)
                 .forEach { card ->
@@ -63,8 +66,15 @@ open class FlashcardGenerator(
                         Timber.i("dropping low-quality card: %s", card.front.take(80))
                     }
                 }
-            if (count == COUNT_AUTO || unique.size >= count) break
-            Timber.i("model returned %d of %d requested cards, retrying", unique.size, count)
+            // auto-count always finishes after one response (no count to top up);
+            // a fixed count keeps requesting only the deficit until it is reached
+            if (count == COUNT_AUTO) break
+            if (unique.size < count) {
+                Timber.i("have %d of %d requested cards, requesting the missing ones", unique.size, count)
+            }
+            // a follow-up that adds nothing new cannot make progress: stop instead of
+            // looping (a first empty response still gets the one retry it always had)
+            if (unique.size == before && requests >= 2) break
         }
         val cards = if (count == COUNT_AUTO) unique.values.toList() else unique.values.take(count).toList()
         if (cards.isEmpty()) {
@@ -81,70 +91,14 @@ open class FlashcardGenerator(
         material: String,
         count: Int,
         includeImages: Boolean,
+        generatedFronts: Set<String>,
     ): String =
         client.chatCompletion(
             provider = provider,
             modelId = modelId,
             systemPrompt = SYSTEM_PROMPT,
-            userPrompt = buildUserPrompt(material, count, includeImages),
+            userPrompt = buildUserPrompt(material, count, includeImages, generatedFronts),
         )
-
-    /**
-     * Streaming variant of [generate]: each card is passed to [onCard] the moment it completes
-     * on the wire (parsed from the accumulated response after every delta), while generation
-     * continues in the background. Cards already delivered are never re-emitted.
-     *
-     * The base implementation streams via [AiClient.chatCompletionStream]; providers without
-     * SSE support return the whole body at once, whose cards are delivered from the final
-     * text — degrading gracefully to all-at-once display.
-     *
-     * @return all emitted cards, in emission order
-     * @throws AiException if the request fails
-     */
-    open suspend fun generateStream(
-        provider: AiProvider,
-        modelId: String,
-        material: String,
-        count: Int,
-        includeImages: Boolean = true,
-        onCard: suspend (GeneratedFlashcard) -> Unit,
-    ): List<GeneratedFlashcard> {
-        Timber.i("streaming %d flashcards with %s/%s", count, provider.name, modelId)
-        val emitted = LinkedHashMap<String, GeneratedFlashcard>()
-
-        /** Parses [text] and delivers every passing card not yet emitted. */
-        suspend fun deliverFrom(text: String) {
-            FlashcardParser
-                .parse(text)
-                .forEach { card ->
-                    if (isQualityCard(card)) {
-                        val fresh = emitted.putIfAbsent(card.front, card) == null
-                        if (fresh) {
-                            if (includeImages) {
-                                onCard(card)
-                            } else {
-                                // never deliver image metadata when images are off
-                                onCard(card.copy(imageUrl = null, image = CardImage.None))
-                            }
-                        }
-                    } else {
-                        Timber.i("dropping low-quality card: %s", card.front.take(80))
-                    }
-                }
-        }
-        val finalText =
-            client.chatCompletionStream(
-                provider = provider,
-                modelId = modelId,
-                systemPrompt = SYSTEM_PROMPT,
-                userPrompt = buildUserPrompt(material, count, includeImages),
-            ) { accumulated -> deliverFrom(accumulated) }
-        // providers without SSE support return the whole body without invoking the delta
-        // callback; the final text still yields its cards through the same path
-        deliverFrom(finalText)
-        if (emitted.isEmpty()) Timber.w("no flashcards could be parsed from the stream")
-        return emitted.values.toList()
-    }
 
     /**
      * Whether [e] is a transient provider failure worth retrying: server overload (HTTP 5xx)
@@ -176,14 +130,20 @@ open class FlashcardGenerator(
         /** Passed to [generate] when the user did not pick a fixed card count. */
         const val COUNT_AUTO = 0
 
-        /** Extra generation attempts when the model returns fewer cards than requested. */
-        private const val MAX_ATTEMPTS = 2
+        /**
+         * Upper bound on generation requests for one call, however many top-ups a short
+         * response needs: a model that keeps returning duplicates must eventually give up.
+         */
+        private const val MAX_REQUESTS = 8
 
         /** Extra attempts for transient provider failures (5xx overload, network aborts). */
         private const val MAX_TRANSIENT_RETRIES = 3
 
         /** Base delay before retrying a transient failure; grows linearly per attempt. */
         private const val RETRY_DELAY_MS = 1_000L
+
+        /** Cap on the already-generated-questions list embedded in a deficit request. */
+        private const val MAX_EXISTING_QUESTIONS_LENGTH = 4000
 
         /** A question shorter than this cannot name a specific concept. */
         private const val MIN_FRONT_LENGTH = 10
@@ -239,9 +199,8 @@ open class FlashcardGenerator(
                 "\"the passage\", \"the user\" or \"the provided content\" inside a question or " +
                 "answer. A student seeing only the card must understand it and know where the " +
                 "content comes from.\n" +
-                "- Never pad the output: if the material cannot support the requested number of " +
-                "strong cards, return fewer. A vague, trivial, off-topic or invented card is worse " +
-                "than a missing one."
+                "- Never pad the output with duplicate, vague, trivial or off-topic cards; " +
+                "every card must be strong, distinct and traceable to the material."
 
         /**
          * Rules for topic-style input (a short subject name, as the input hint invites: "describe
@@ -257,11 +216,13 @@ open class FlashcardGenerator(
                 "knowledge of the topic as the source.\n" +
                 "- Be factually correct and precise; include the standard definitions, formulas, " +
                 "units and terminology of the topic where they apply.\n" +
-                "- If you do not reliably know the topic, return fewer cards rather than inventing.\n" +
+                "- If you do not reliably know a concept, do not invent it; cover the parts of " +
+                "the topic you do know accurately.\n" +
                 "- Every card must be SELF-CONTAINED: never mention \"the topic\" in a way that " +
                 "only makes sense with the original input; each card must stand alone.\n" +
                 "- Focus on important, learnable information; do not create unnecessary cards.\n" +
-                "- Never pad the output: prefer fewer strong cards over weak ones."
+                "- Never pad the output with duplicate, vague, trivial or off-topic cards; " +
+                "every card must be strong, distinct and accurate."
 
         /**
          * Math is rendered by the viewer's bundled MathJax, so the model MUST wrap equations in
@@ -371,31 +332,44 @@ open class FlashcardGenerator(
         private fun countInstruction(
             count: Int,
             isTopic: Boolean,
+            generatedFronts: Set<String>,
         ): String {
             val source = if (isTopic) "the key concepts of the topic" else "the material"
-            return if (count == COUNT_AUTO) {
-                "Generate enough cards to cover the important information about $source; " +
+            if (count == COUNT_AUTO) {
+                return "Generate enough cards to cover the important information about $source; " +
                     "prefer high-quality cards over unnecessary quantity."
-            } else {
-                "Generate up to $count flashcards about $source. Cover as many " +
-                    "distinct, important aspects as possible, by asking " +
+            }
+            if (generatedFronts.isEmpty()) {
+                return "Generate EXACTLY $count flashcards about $source — neither fewer nor more. " +
+                    "Cover as many distinct, important aspects as possible, by asking " +
                     "different question types (definition, conceptual, formula, calculation, " +
                     "application, comparison, process, diagram, troubleshooting) — one concept " +
-                    "per card. If the topic cannot support $count strong cards, return fewer " +
-                    "rather than padding with vague, trivial or generic cards; never invent " +
-                    "content to reach the count."
+                    "per card. This is a fixed requirement, not a maximum: the response must " +
+                    "contain exactly $count cards."
             }
+            // follow-up for a short response: ask for only the deficit, never repeating a card
+            val deficit = count - generatedFronts.size
+            val existing =
+                generatedFronts
+                    .joinToString("\n") { front -> "- $front" }
+                    .take(MAX_EXISTING_QUESTIONS_LENGTH)
+            return "A previous request for $count flashcards returned only ${generatedFronts.size}. " +
+                "Generate EXACTLY $deficit additional flashcards about $source to complete the " +
+                "request — neither fewer nor more. Each new card must cover a DIFFERENT concept " +
+                "and must not duplicate or rephrase any question from this list of already " +
+                "generated cards:\n$existing"
         }
 
         private fun buildUserPrompt(
             material: String,
             count: Int,
             includeImages: Boolean,
+            generatedFronts: Set<String>,
         ): String {
             val isTopic = isTopicInput(material)
             val coreRules = if (isTopic) TOPIC_RULES else CORE_RULES
             val sourceLabel = if (isTopic) "Topic" else "Material"
-            return "${countInstruction(count, isTopic)}\n" +
+            return "${countInstruction(count, isTopic, generatedFronts)}\n" +
                 "Respond with JSON only, in this shape (omit unsupported sections" +
                 "${if (includeImages) "; image_prompt is required and may be an empty string" else ""}):\n" +
                 "{\"cards\": [{\"subject\": \"...\", \"topic\": \"...\", \"question\": \"...\", " +

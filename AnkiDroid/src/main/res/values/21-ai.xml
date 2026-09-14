@@ -51,7 +51,6 @@
     <string name="ai_default_card_count" comment="Default number of cards to generate">10</string>
     <string name="ai_generating">Generating flashcards\u2026</string>
     <string name="ai_adding">Adding cards\u2026</string>
-    <string name="ai_generation_progress" comment="Shown while cards stream in; the user can already use the listed cards">Generating %1$d/%2$d\u2026</string>
     <string name="ai_deselect_all">Deselect all</string>
     <string name="ai_card_accepted">Accept</string>
     <string name="ai_card_image">Card image</string>
@@ -84,6 +83,7 @@
     <string name="ai_error_not_configured">No AI provider and model configured for flashcards. Open Settings → AI to set one up.</string>
     <string name="ai_error_empty_input">Please provide a topic or material first</string>
     <string name="ai_error_no_cards">The AI did not return any flashcards. Try again or rephrase your input.</string>
+    <string name="ai_error_count_not_reached" comment="%1$d is the number of cards received, %2$d the number requested">The AI returned only %1$d of %2$d flashcards. Review the generated cards or try again.</string>
     <string name="ai_error_no_cards_selected">Accept at least one card first</string>
     <string name="ai_error_deck_name_required">Please provide a name for the new deck</string>
     <string name="ai_error_card_fields_required">Front and back must not be empty</string>

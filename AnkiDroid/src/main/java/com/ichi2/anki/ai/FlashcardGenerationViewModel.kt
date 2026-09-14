@@ -28,9 +28,6 @@ import timber.log.Timber
 /**
  * State machine for the flashcard generation screen:
  * input -> generating -> reviewing -> adding -> done.
- *
- * With streaming generation, [Reviewing] is entered as soon as the first card arrives and
- * updated as each further card completes; [isGenerating] stays true until the batch ends.
  */
 sealed class GenerationUiState {
     /** The user is entering material and generation options. */
@@ -53,12 +50,6 @@ sealed class GenerationUiState {
         val deckName: String,
     ) : GenerationUiState()
 }
-
-/** Progress of a streaming generation: [ready] cards delivered of [requested]. */
-data class GenerationProgress(
-    val ready: Int,
-    val requested: Int,
-)
 
 /** An error that aborts the flow and returns the user to the input step. */
 data class GenerationError(
@@ -92,7 +83,9 @@ sealed class CardImageState {
 
 /**
  * ViewModel for the flashcard generation screen: generates flashcards from user-provided
- * material via the configured AI provider, and adds the accepted ones to a deck.
+ * material via the configured AI provider, and adds the accepted ones to a deck. The whole
+ * batch of requested cards is generated first and then displayed all at once in the review
+ * list — no partial display, streaming or pagination.
  */
 class FlashcardGenerationViewModel
     @JvmOverloads
@@ -106,15 +99,8 @@ class FlashcardGenerationViewModel
         private val _uiState = MutableStateFlow<GenerationUiState>(GenerationUiState.Input)
         val uiState: StateFlow<GenerationUiState> = _uiState
 
-        /** Streaming generation state: the in-flight job and its user-visible progress. */
+        /** The in-flight generation job, cancelable via [backToInput]. */
         private var generationJob: Job? = null
-
-        private val _isGenerating = MutableStateFlow(false)
-
-        private val _generationProgress = MutableStateFlow<GenerationProgress?>(null)
-
-        /** "ready of requested" cards while streaming; null when not generating. */
-        val generationProgress: StateFlow<GenerationProgress?> = _generationProgress
 
         private val _error = MutableStateFlow<GenerationError?>(null)
         val error: StateFlow<GenerationError?> = _error
@@ -287,14 +273,12 @@ class FlashcardGenerationViewModel
         }
 
         /**
-         * Requests flashcard generation for [material], displaying each card in the review list
-         * as soon as it completes while the rest keep generating in the background.
+         * Requests flashcard generation for [material]. The screen stays on the generating
+         * step until the whole batch of [count] cards is ready, then displays them all at
+         * once in the review list.
          *
-         * The first delivered card flips the state to [GenerationUiState.Reviewing] immediately;
-         * [generationProgress] tracks "ready of requested" and [isGenerating] stays true until
-         * the batch ends. If the provider cannot stream, this degrades to the previous
-         * all-at-once behavior. On a failure after cards were already shown, the streamed cards
-         * remain for review and the error is surfaced.
+         * If the provider cannot supply the exact count, whatever unique quality-gated
+         * cards it did return are displayed and the shortfall is surfaced as an error.
          */
         fun generate(
             material: String,
@@ -307,8 +291,6 @@ class FlashcardGenerationViewModel
                 return
             }
             _uiState.value = GenerationUiState.Generating
-            _isGenerating.value = true
-            _generationProgress.value = GenerationProgress(ready = 0, requested = count)
             // image settings are fixed at generation time so a mid-flight toggle never
             // mixes imageless and image-bearing cards in one review batch
             val includeImages = providerStore.getSelection(AiTaskType.IMAGE) != null
@@ -316,101 +298,47 @@ class FlashcardGenerationViewModel
                 viewModelScope.launch {
                     try {
                         // AiClient performs its I/O on Dispatchers.IO internally
-                        val streamed = mutableListOf<GeneratedFlashcard>()
-
-                        /** One delivered card: display it immediately and advance the progress. */
-                        suspend fun onCard(card: GeneratedFlashcard) {
-                            streamed.add(card)
-                            // the model may emit image metadata despite being told not to;
-                            // with images off, no card may carry, show or attach an image
-                            val effective = if (includeImages) card else card.copy(imageUrl = null, image = CardImage.None)
-                            enterReviewIfFirstCard(effective)
-                            appendReviewedCard(effective)
-                            _generationProgress.value = GenerationProgress(ready = streamed.size, requested = count)
-                        }
-                        generator.generateStream(
-                            provider = provider,
-                            modelId = selection.modelId,
-                            material = material,
-                            count = count,
-                            includeImages = includeImages,
-                        ) { card -> onCard(card) }
-                        finishGeneration(streamed.toList())
-                    } catch (e: AiException) {
-                        Timber.w(e, "flashcard generation failed")
-                        val shown = currentCards()
-                        if (shown.isEmpty()) {
-                            // nothing was displayed yet: return to input like before
-                            _error.value = GenerationError(e.message ?: getApplication<Application>().getString(R.string.ai_error_generic))
+                        val generated = generator.generate(provider, selection.modelId, material, count, includeImages)
+                        // the model may emit image metadata despite being told not to;
+                        // with images off, no card may carry, show or attach an image
+                        val cards =
+                            if (includeImages) generated else generated.map { it.copy(imageUrl = null, image = CardImage.None) }
+                        if (cards.isEmpty()) {
+                            _error.value = GenerationError(getApplication<Application>().getString(R.string.ai_error_no_cards))
                             _uiState.value = GenerationUiState.Input
                         } else {
-                            // keep the already-streamed cards reviewable; surface the failure
-                            _error.value = GenerationError(e.message ?: getApplication<Application>().getString(R.string.ai_error_generic))
-                            _isGenerating.value = false
+                            if (cards.size < count) {
+                                _error.value =
+                                    GenerationError(
+                                        getApplication<Application>().getString(R.string.ai_error_count_not_reached, cards.size, count),
+                                    )
+                            }
+                            enterReview(cards)
                         }
+                    } catch (e: AiException) {
+                        Timber.w(e, "flashcard generation failed")
+                        _error.value = GenerationError(e.message ?: getApplication<Application>().getString(R.string.ai_error_generic))
+                        _uiState.value = GenerationUiState.Input
                     }
                 }
         }
 
-        /** Whether a streaming generation is still in flight (progress is visible meanwhile). */
-        val isGenerating: Boolean
-            get() = _isGenerating.value
-
-        /** First-card switch: enters [GenerationUiState.Reviewing] once, resetting review state. */
-        private fun enterReviewIfFirstCard(card: GeneratedFlashcard) {
-            if (uiState.value is GenerationUiState.Reviewing) return
+        /** Enters the review step with the complete batch [cards], resetting review state. */
+        private fun enterReview(cards: List<GeneratedFlashcard>) {
             _acceptedIds.value = emptySet()
             imageJobs.values.forEach { it.cancel() }
             imageJobs.clear()
             imageSources.clear()
             _retrySelection.value = emptySet()
             _imageStates.value = emptyMap()
-            _uiState.value = GenerationUiState.Reviewing(listOf(card))
-            startImageGeneration(listOf(card))
-        }
-
-        /** Appends [card] to the review list if it is not already displayed. */
-        private fun appendReviewedCard(card: GeneratedFlashcard) {
-            val current = uiState.value as? GenerationUiState.Reviewing ?: return
-            if (current.cards.any { it.id == card.id }) return
-            _uiState.value = GenerationUiState.Reviewing(current.cards + card)
-            startImageGeneration(listOf(card))
-        }
-
-        /** Completion path shared by the streaming and batch flows. */
-        private suspend fun finishGeneration(cards: List<GeneratedFlashcard>) {
-            _isGenerating.value = false
-            if (cards.isEmpty() && currentCards().isEmpty()) {
-                _error.value = GenerationError(getApplication<Application>().getString(R.string.ai_error_no_cards))
-                _uiState.value = GenerationUiState.Input
-            } else {
-                // ensure the review list matches the final result even when the provider
-                // returned everything at once (non-streaming fallback)
-                if (uiState.value !is GenerationUiState.Reviewing) {
-                    val effective =
-                        if (providerStore.getSelection(AiTaskType.IMAGE) != null) {
-                            cards
-                        } else {
-                            cards.map { it.copy(imageUrl = null, image = CardImage.None) }
-                        }
-                    _acceptedIds.value = emptySet()
-                    imageJobs.values.forEach { it.cancel() }
-                    imageJobs.clear()
-                    imageSources.clear()
-                    _retrySelection.value = emptySet()
-                    _imageStates.value = emptyMap()
-                    _uiState.value = GenerationUiState.Reviewing(effective)
-                    startImageGeneration(effective)
-                }
-            }
+            _uiState.value = GenerationUiState.Reviewing(cards)
+            startImageGeneration(cards)
         }
 
         /** Returns to the input step, discarding the generated cards and any in-flight images. */
         fun backToInput() {
             generationJob?.cancel()
             generationJob = null
-            _isGenerating.value = false
-            _generationProgress.value = null
             imageJobs.values.forEach { it.cancel() }
             imageJobs.clear()
             imageSources.clear()

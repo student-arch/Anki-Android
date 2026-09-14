@@ -79,6 +79,82 @@ class FlashcardGeneratorTest : RobolectricTest() {
             assertThat(client.calls, equalTo(2))
         }
 
+    /** [fronts] numbered questions whose fronts are unique and pass the quality gate. */
+    private fun numberedFronts(range: IntRange): Array<String> =
+        range.map { "What is valid question number $it about the topic?" }.toTypedArray()
+
+    @Test
+    fun `exact requested count is reached across deficit top-up requests`() =
+        runTest {
+            // the first response covers only 7 of the 13 requested cards; each follow-up
+            // must ask for just the deficit until the exact number is delivered
+            val client =
+                ScriptedClient(
+                    listOf(
+                        cardsJson(*numberedFronts(1..7)),
+                        cardsJson(*numberedFronts(8..10)),
+                        cardsJson(*numberedFronts(11..13)),
+                    ),
+                )
+            val cards = FlashcardGenerator(client).generate(provider, "m", "material", 13)
+            assertThat(cards, hasSize(13))
+            assertThat(cards.map { it.front }, equalTo(numberedFronts(1..13).toList()))
+            assertThat(client.calls, equalTo(3))
+        }
+
+    @Test
+    fun `prompt demands the exact number of cards`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson(*numberedFronts(1..13))
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "material", 13)
+
+            assertThat(capturedPrompt.orEmpty(), containsString("EXACTLY 13 flashcards"))
+        }
+
+    @Test
+    fun `deficit request asks only for the missing cards and excludes existing questions`() =
+        runTest {
+            val prompts = mutableListOf<String>()
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        prompts.add(userPrompt)
+                        return if (prompts.size == 1) {
+                            cardsJson(*numberedFronts(1..7))
+                        } else {
+                            cardsJson(*numberedFronts(8..13))
+                        }
+                    }
+                }
+            val cards = FlashcardGenerator(client).generate(provider, "m", "material", 13)
+
+            assertThat(cards, hasSize(13))
+            assertThat(prompts.size, equalTo(2))
+            // the follow-up requests only the 6 missing cards
+            assertThat(prompts[1], containsString("EXACTLY 6 additional flashcards"))
+            // and lists the questions already generated so none are repeated
+            assertThat(prompts[1], containsString("What is valid question number 3 about the topic?"))
+        }
+
     @Test
     fun `duplicate questions across attempts are deduplicated`() =
         runTest {
@@ -90,6 +166,7 @@ class FlashcardGeneratorTest : RobolectricTest() {
                             "What is the first valid question about the topic?",
                             "What is the second valid question about the topic?",
                         ),
+                        cardsJson("What is the third valid question about the topic?"),
                     ),
                 )
             val cards = FlashcardGenerator(client).generate(provider, "m", "material", 3)
@@ -99,6 +176,7 @@ class FlashcardGeneratorTest : RobolectricTest() {
                     listOf(
                         "What is the first valid question about the topic?",
                         "What is the second valid question about the topic?",
+                        "What is the third valid question about the topic?",
                     ),
                 ),
             )
@@ -417,111 +495,65 @@ class FlashcardGeneratorTest : RobolectricTest() {
             }
         }
 
-    /**
-     * A client whose streaming path emits cards one by one, as a real OpenAI-compatible
-     * provider does once each card object completes on the wire. Not inner (anonymous
-     * subclasses below), so the card JSON is built locally instead of via the test's helper.
-     */
-    private open class StreamingClient : AiClient() {
-        override suspend fun chatCompletionStream(
-            provider: AiProvider,
-            modelId: String,
-            systemPrompt: String,
-            userPrompt: String,
-            jsonMode: Boolean,
-            onDelta: suspend (String) -> Unit,
-        ): String {
-            val cards =
-                listOf(
-                    "What is the first valid question about the topic?",
-                    "What is the second valid question about the topic?",
-                    "What is the third valid question about the topic?",
-                )
-            var accumulated = ""
-            cards.forEach { front ->
-                // each snapshot ends right after a complete card object
-                accumulated = """{"cards": [{"question": "$front", "answer": "The answer explains it in full detail."}]}"""
-                onDelta(accumulated)
-            }
-            return accumulated
-        }
-    }
-
     @Test
-    fun `streaming emits each card as soon as it completes`() =
+    fun `duplicate fronts across responses are deduplicated`() =
         runTest {
-            val client = StreamingClient()
-            val received = mutableListOf<GeneratedFlashcard>()
-            FlashcardGenerator(client).generateStream(provider, "m", "material", 3) { card ->
-                received.add(card)
-            }
+            val client =
+                object : AiClient() {
+                    private var calls = 0
 
-            // every card is emitted exactly once, in order, before the call returns
-            assertThat(received.map { it.front }, hasSize(3))
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        calls++
+                        // first response: one unique card; second: the same card again plus a new one
+                        return if (calls == 1) {
+                            cardsJson("What is the first valid question about the topic?")
+                        } else {
+                            cardsJson(
+                                "What is the first valid question about the topic?",
+                                "What is the second valid question about the topic?",
+                            )
+                        }
+                    }
+                }
+            val cards = FlashcardGenerator(client).generate(provider, "m", "material", 2)
             assertThat(
-                received.map { it.front },
+                cards.map { it.front },
                 equalTo(
                     listOf(
                         "What is the first valid question about the topic?",
                         "What is the second valid question about the topic?",
-                        "What is the third valid question about the topic?",
                     ),
                 ),
             )
         }
 
     @Test
-    fun `streaming applies the quality gate and deduplication incrementally`() =
+    fun `quality gate drops meta and fragment cards from a response`() =
         runTest {
             val client =
                 object : AiClient() {
-                    override suspend fun chatCompletionStream(
+                    override suspend fun chatCompletion(
                         provider: AiProvider,
                         modelId: String,
                         systemPrompt: String,
                         userPrompt: String,
                         jsonMode: Boolean,
-                        onDelta: suspend (String) -> Unit,
-                    ): String {
-                        // a duplicate front and a meta question that must both be filtered out
-                        val bad =
-                            """{"cards": [{"question": "Duplicate front", "answer": "ok answer here"}, """ +
-                                """"question": "What does the material say about X?", "answer": "fine answer here too"}]}"""
-                        onDelta("""{"cards": [{"question": "Duplicate front", "answer": "ok answer here"}]}""")
-                        onDelta(bad)
-                        return bad
-                    }
+                    ): String =
+                        """{"cards": [
+                            {"question": "What is the first valid question about the topic?", "answer": "The answer explains it in full detail."},
+                            {"question": "Duplicate front", "answer": "ok answer here"},
+                            {"question": "What does the material say about X?", "answer": "fine answer here too"}
+                        ]}"""
                 }
-            val received = mutableListOf<GeneratedFlashcard>()
-            FlashcardGenerator(client).generateStream(provider, "m", "material", 5) { card ->
-                received.add(card)
-            }
-
-            // the duplicate is emitted once; the meta question never; nothing else
-            assertThat(received.size, equalTo(1))
-            assertThat(received[0].front, equalTo("Duplicate front"))
-        }
-
-    @Test
-    fun `streaming falls back to the batch response when the provider cannot stream`() =
-        runTest {
-            // providers without SSE support return the whole body at once (or reject
-            // `stream`): the accumulated text still yields all its cards via the callback
-            val client =
-                object : AiClient() {
-                    override suspend fun chatCompletionStream(
-                        provider: AiProvider,
-                        modelId: String,
-                        systemPrompt: String,
-                        userPrompt: String,
-                        jsonMode: Boolean,
-                        onDelta: suspend (String) -> Unit,
-                    ): String = cardsJson("What is a valid first question about the topic?")
-                }
-            val received = mutableListOf<GeneratedFlashcard>()
-            FlashcardGenerator(client).generateStream(provider, "m", "material", 1) { card ->
-                received.add(card)
-            }
-            assertThat(received.size, equalTo(1))
+            val cards = FlashcardGenerator(client).generate(provider, "m", "material", 3)
+            // the duplicate is kept once; the meta question never; the count is not reached,
+            // so the generator keeps requesting until MAX_REQUESTS stops the loop
+            assertThat(cards.map { it.front }, equalTo(listOf("What is the first valid question about the topic?", "Duplicate front")))
         }
 }
