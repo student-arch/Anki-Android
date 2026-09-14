@@ -14,6 +14,7 @@ import com.bytehamster.lib.preferencesearch.SearchPreference
 import com.ichi2.anki.BuildConfig
 import com.ichi2.anki.CollectionManager.TR
 import com.ichi2.anki.R
+import com.ichi2.anki.ai.AiSettingsFragment
 import com.ichi2.anki.common.android.AdaptionUtil
 import com.ichi2.anki.compat.CompatHelper
 import com.ichi2.anki.preferences.profiles.SwitchProfilesFragment
@@ -125,6 +126,7 @@ class HeaderFragment : SettingsFragment() {
                     .addBreadcrumb(activity.getString(R.string.pref_controls_previews_tab))
                 index(R.xml.preferences_accessibility)
                 index(R.xml.preferences_backup_limits)
+                index(R.xml.preferences_ai)
                 ignorePreference(activity.getString(R.string.pref_backups_help_key))
                 indexItem()
                     .withKey(activity.getString(R.string.reschedule_command_key))
@@ -245,6 +247,7 @@ class HeaderFragment : SettingsFragment() {
                 is ControlsSettingsFragment -> R.string.pref_controls_screen_key
                 is AccessibilitySettingsFragment -> R.string.pref_accessibility_screen_key
                 is BackupLimitsSettingsFragment -> R.string.pref_backup_limits_screen_key
+                is AiSettingsFragment -> R.string.ai_screen_key
                 is AdvancedSettingsFragment -> R.string.pref_advanced_screen_key
                 is ReviewerOptionsFragment, is ReviewerMenuSettingsFragment -> R.string.new_reviewer_options_key
                 is DeveloperOptionsFragment -> R.string.pref_developer_options_screen_key

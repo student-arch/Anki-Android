@@ -17,6 +17,7 @@
 package com.ichi2.anki.dialogs
 
 import android.app.Dialog
+import android.content.Context
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -401,21 +402,7 @@ class DeckSelectionDialog : AnalyticsDialogFragment() {
 
             launchCatchingTask {
                 decksRoot = withCol { Pair(sched.deckDueTree(), isEmpty) }.first
-                val allDecksSet =
-                    decks
-                        .mapNotNull { it as? SelectableDeck.Deck }
-                        .mapNotNull { decksRoot.find(it.deckId) }
-                        .toSet()
-                if (decks.any { it is SelectableDeck.AllDecks }) {
-                    val newDeckNode =
-                        deckTreeNode {
-                            deckId = ALL_DECKS_ID
-                            name = "all"
-                        }
-                    allDecksList.add(DeckNode(newDeckNode, TR.sentenceCase.allDecks, null))
-                }
-
-                allDecksList.addAll(allDecksSet)
+                allDecksList.addAll(resolveDecksForDisplay(requireContext(), decks, decksRoot))
                 updateCurrentlyDisplayedDecks()
             }
         }
@@ -435,6 +422,42 @@ class DeckSelectionDialog : AnalyticsDialogFragment() {
         private const val ARG_TEMPLATE_EDITOR_MESSAGE = "arg_template_editor_message"
         private const val DECK_NAMES = "deckNames"
         private const val ARG_ALLOW_MULTIPLE_SELECTION = "arg_allow_multiple_selection"
+
+        /**
+         * Resolves [decks] against the tree rooted at [root], preserving the order of [decks].
+         *
+         * A deck which is not present in the tree (e.g. the empty 'Default' deck, which the
+         * backend omits from `deckTree()`) is kept as a leaf node so it remains selectable.
+         */
+        internal fun resolveDecksForDisplay(
+            context: Context,
+            decks: List<SelectableDeck>,
+            root: DeckNode,
+        ): List<DeckNode> =
+            decks.mapNotNull { deck ->
+                when (deck) {
+                    is SelectableDeck.AllDecks ->
+                        DeckNode(
+                            deckTreeNode {
+                                deckId = ALL_DECKS_ID
+                                name = "all"
+                            },
+                            with(context) { TR.sentenceCase.allDecks },
+                            null,
+                        )
+
+                    is SelectableDeck.Deck ->
+                        root.find(deck.deckId)
+                            ?: DeckNode(
+                                deckTreeNode {
+                                    deckId = deck.deckId
+                                    name = deck.name.substringAfterLast("::")
+                                },
+                                deck.name,
+                                null,
+                            )
+                }
+            }
 
         /** Creates a new instance of [DeckSelectionDialog]. */
         fun newInstance(

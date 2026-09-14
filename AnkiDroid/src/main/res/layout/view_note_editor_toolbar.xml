@@ -91,6 +91,44 @@
             app:srcCompat="@drawable/ic_add_equation_black_24dp"
             android:tag="m"
             style="@style/note_editor_toolbar_button" />
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/note_editor_toolbar_button_text_color"
+            app:srcCompat="@drawable/ic_format_textcolor"
+            android:tag="c"
+            style="@style/note_editor_toolbar_button" />
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/note_editor_toolbar_button_highlight"
+            android:contentDescription="@string/format_highlight"
+            android:tooltipText="@string/format_highlight"
+            app:srcCompat="@drawable/ic_format_highlight"
+            android:tag="l"
+            style="@style/note_editor_toolbar_button" />
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/note_editor_toolbar_button_code"
+            android:contentDescription="@string/format_code"
+            android:tooltipText="@string/format_code"
+            app:srcCompat="@drawable/ic_code"
+            android:tag="o"
+            style="@style/note_editor_toolbar_button" />
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/note_editor_toolbar_button_list"
+            android:contentDescription="@string/format_bullet_list"
+            android:tooltipText="@string/format_bullet_list"
+            app:srcCompat="@drawable/ic_list_black"
+            android:tag="t"
+            style="@style/note_editor_toolbar_button" />
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/note_editor_toolbar_button_clear_format"
+            android:contentDescription="@string/format_clear"
+            android:tooltipText="@string/format_clear"
+            app:srcCompat="@drawable/ic_clear_white"
+            android:tag="x"
+            style="@style/note_editor_toolbar_button" />
     </LinearLayout>
     </LinearLayout>
 </HorizontalScrollView>

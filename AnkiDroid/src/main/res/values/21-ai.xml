@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <!-- AI settings screen -->
+    <string name="ai_settings_title" maxLength="41" comment="Settings section for configuring AI generation features">AI</string>
+    <string name="ai_providers_title" maxLength="41">AI providers</string>
+    <string name="ai_providers_none_configured">No providers configured yet</string>
+    <plurals name="ai_providers_count" comment="%d is the number of configured AI providers">
+        <item quantity="one">%d provider configured</item>
+        <item quantity="other">%d providers configured</item>
+    </plurals>
+    <string name="ai_provider_label" maxLength="41">Provider</string>
+    <string name="ai_model_label" maxLength="41">Model</string>
+    <string name="ai_model_none_selected">Select a provider first</string>
+    <string name="ai_refresh_models_title" maxLength="41">Refresh model lists</string>
+    <string name="ai_refresh_models_summary">Fetch the available models from all configured providers</string>
+    <string name="ai_models_refreshed">Model lists updated</string>
+    <string name="ai_models_refresh_failed" comment="%d is the number of providers whose models could not be fetched">Could not refresh models for %d provider(s)</string>
+    <string name="ai_task_flashcards" maxLength="41">Flashcard generation</string>
+    <string name="ai_task_images" maxLength="41">Image generation</string>
+    <string name="ai_image_provider_none" comment="Picker entry that disables image generation entirely">None (don\u2019t generate images)</string>
+    <string name="ai_images_off" comment="Shown for the image model when image generation is disabled">Images are off \u2014 no provider selected</string>
+
+    <!-- Provider management -->
+    <string name="ai_provider_add_button">Add provider</string>
+    <string name="ai_provider_add_title" maxLength="41">Add AI provider</string>
+    <string name="ai_provider_edit_title" maxLength="41">Edit AI provider</string>
+    <string name="ai_provider_name_hint" comment="Display name for a configured AI provider">Name</string>
+    <string name="ai_provider_base_url_hint" comment="API endpoint of the AI provider, e.g. https://api.openai.com/v1">Base URL</string>
+    <string name="ai_provider_api_key_hint" comment="Secret API key of the AI provider">API key</string>
+    <string name="ai_provider_api_key_note">Saving tests the connection by fetching the list of models the provider offers. The key is stored only on this device and never synced.</string>
+    <string name="ai_provider_testing">Testing provider\u2026</string>
+    <string name="ai_provider_validated" comment="%d is the number of models the provider offers">Provider works: %d models available</string>
+    <string name="ai_provider_test_failed">Could not reach the provider</string>
+    <string name="ai_provider_missing_fields">Please provide a name and a base URL</string>
+    <string name="ai_provider_delete_title" maxLength="41">Delete provider</string>
+    <string name="ai_provider_delete_message" comment="%s is the provider name">Delete the provider \u201c%s\u201d? It will no longer be available for flashcard or image generation.</string>
+    <string name="ai_provider_model_count" comment="%d is the number of models offered by the provider">%d models</string>
+    <string name="save_anyway">Save anyway</string>
+    <string name="ai_provider_models_hint">Models (optional)</string>
+    <string name="ai_provider_models_helper">One model id per line or comma-separated. Needed when the provider cannot list models (e.g. Cloudflare AI: @cf/meta/llama-3.2-1b-instruct).</string>
+    <string name="ai_provider_saved_manual">Saved. This provider cannot list models, so the models you typed were used.</string>
+    <string name="ai_provider_needs_manual_models">This provider does not support listing models (HTTP %1$s). Enter at least one model id in the Models field, then save.</string>
+
+    <!-- Flashcard generation -->
+    <string name="menu_generate_flashcards" maxLength="28">Generate flashcards</string>
+    <string name="ai_setup_hint">No AI provider is configured. Tap here to set one up in the settings.</string>
+    <string name="ai_material_label">What do you want to learn?</string>
+    <string name="ai_material_hint">Paste learning material or describe a topic, e.g. \u201cKey concepts of photosynthesis\u201d</string>
+    <string name="ai_card_count_label">How many cards?</string>
+    <string name="ai_default_card_count" comment="Default number of cards to generate">10</string>
+    <string name="ai_generating">Generating flashcards\u2026</string>
+    <string name="ai_adding">Adding cards\u2026</string>
+    <string name="ai_generation_progress" comment="Shown while cards stream in; the user can already use the listed cards">Generating %1$d/%2$d\u2026</string>
+    <string name="ai_deselect_all">Deselect all</string>
+    <string name="ai_card_accepted">Accept</string>
+    <string name="ai_card_image">Card image</string>
+    <string name="ai_generating_image">Generating image\u2026</string>
+    <string name="ai_image_failed">Image generation failed</string>
+    <string name="ai_image_retry_select">Regenerate this image</string>
+    <string name="ai_change_images">Generate or replace images</string>
+    <string name="ai_select_images">Select cards for image generation</string>
+    <string name="ai_image_no_models">No models loaded. Refresh this provider in AI settings.</string>
+    <string name="ai_image_replacement_failed">Could not replace the image. Your previous image was kept. Choose another provider or model and try again.</string>
+    <string name="ai_provider_model_summary" comment="%1$s is the AI provider name, %2$s is the AI model id">%1$s \u00b7 %2$s</string>
+    <string name="ai_generate_images_label" comment="Switch that enables or disables image generation for the generated flashcards">Generate images</string>
+    <string name="ai_edit_card">Edit card</string>
+    <string name="ai_reject_card">Reject card</string>
+    <string name="ai_edit_card_title" maxLength="41">Edit flashcard</string>
+    <string name="ai_edit_card_front" comment="Front side of a flashcard">Front</string>
+    <string name="ai_edit_card_back" comment="Back side of a flashcard">Back</string>
+    <string name="ai_choose_deck">Choose deck</string>
+    <string name="ai_no_deck_selected">No deck selected</string>
+    <string name="ai_existing_deck_option" comment="Radio option to add cards to an existing deck">Add to existing deck</string>
+    <string name="ai_new_deck_option" comment="Radio option to create a new deck and add the cards to it">Create a new deck</string>
+    <string name="ai_new_deck_name_hint" comment="Name of the deck to be created">New deck name</string>
+    <string name="ai_done_summary" comment="%1$d is the number of cards added, %2$s is the deck name">%1$d cards added to \u201c%2$s\u201d</string>
+    <plurals name="ai_add_cards" comment="%d is the number of accepted cards to add to a deck">
+        <item quantity="one">Add %d card</item>
+        <item quantity="other">Add %d cards</item>
+    </plurals>
+
+    <!-- AI errors -->
+    <string name="ai_error_not_configured">No AI provider and model configured for flashcards. Open Settings → AI to set one up.</string>
+    <string name="ai_error_empty_input">Please provide a topic or material first</string>
+    <string name="ai_error_no_cards">The AI did not return any flashcards. Try again or rephrase your input.</string>
+    <string name="ai_error_no_cards_selected">Accept at least one card first</string>
+    <string name="ai_error_deck_name_required">Please provide a name for the new deck</string>
+    <string name="ai_error_card_fields_required">Front and back must not be empty</string>
+    <string name="ai_error_add_failed">Could not add the cards to the deck</string>
+    <string name="ai_error_generic">The request failed. Check your connection and provider settings.</string>
+</resources>

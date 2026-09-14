@@ -34,6 +34,7 @@ import com.google.android.material.appbar.CollapsingToolbarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.ichi2.anki.R
 import com.ichi2.anki.SingleFragmentActivity
+import com.ichi2.anki.ai.AiSettingsFragment
 import com.ichi2.anki.common.android.Animations
 import com.ichi2.anki.common.annotations.LegacyNotifications
 import com.ichi2.anki.common.utils.android.getResFromAttr
@@ -318,6 +319,7 @@ fun getFragmentFromXmlRes(
         R.xml.preferences_previewer_controls -> ControlsSettingsFragment()
         R.xml.preferences_advanced -> AdvancedSettingsFragment()
         R.xml.preferences_accessibility -> AccessibilitySettingsFragment()
+        R.xml.preferences_ai -> AiSettingsFragment()
         R.xml.preferences_developer_options -> DeveloperOptionsFragment()
         R.xml.preferences_reviewer -> ReviewerOptionsFragment()
         R.xml.preferences_custom_buttons -> CustomButtonsSettingsFragment()

@@ -154,3 +154,33 @@ scale up, but not down.  */
 .night_mode .replay-button svg {
   fill: white;
 }
+
+/*
+Long equations and wide matrices must not overflow or be cut off: scroll them
+horizontally instead of letting them push the card content out of view.
+Works in both light and dark themes (no color is set).
+*/
+mjx-container {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding: 1px 0;
+}
+
+mjx-container mjx-merror {
+  color: #f00;
+}
+
+/* Monospace, block-preserving rendering for code snippets inside cards */
+pre,
+code {
+  font-family: "Noto Sans Mono", monospace;
+}
+
+pre {
+  overflow-x: auto;
+  white-space: pre;
+  background-color: rgba(127, 127, 127, 0.1);
+  padding: 6px;
+  border-radius: 4px;
+}

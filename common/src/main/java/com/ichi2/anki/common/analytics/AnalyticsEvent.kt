@@ -87,4 +87,5 @@ enum class LinkAction(
     IMPORT_APKG_FILE("Import APKG"),
     IMPORT_COLPKG_FILE("Import COLPKG"),
     IMPORT_CSV_FILE("Import CSV"),
+    IMPORT_PASTED_TEXT("Import pasted text"),
 }

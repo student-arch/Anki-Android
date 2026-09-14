@@ -247,6 +247,40 @@ class AbstractFlashcardViewerTest : RobolectricTest() {
     }
 
     @Test
+    fun `pinch zoom carries over from question to answer and resets on new card`() {
+        addNoteUsingNoteTypeName("Basic", "Q1", "A1")
+        addNoteUsingNoteTypeName("Basic", "Q2", "A2")
+        val viewer: NonAbstractFlashcardViewer = getViewer(addCard = false)
+        val firstCardId = viewer.currentCard!!.id
+
+        // user pinch-zooms the question
+        viewer.onPinchZoomChangedForTest(newScale = 1.5f)
+        assertThat(viewer.cardScaleToRestore, equalTo(1.5f))
+
+        // answering reloads the full HTML; the zoom must survive the reload
+        viewer.displayCardAnswer()
+        assertThat("zoom carried to answer side", viewer.cardScaleToRestore, equalTo(1.5f))
+
+        // a genuinely new card resets to the default zoom
+        viewer.executeCommand(ViewerCommand.ANSWER_EASY)
+        advanceRobolectricLooper()
+        advanceRobolectricLooper()
+        val secondCardId = viewer.currentCard!!.id
+        assertThat("moved to a different card", secondCardId, not(equalTo(firstCardId)))
+        assertThat("zoom reset for new card", viewer.cardScaleToRestore, nullValue())
+    }
+
+    @Test
+    fun `reset zoom clears a recorded pinch zoom`() {
+        addNoteUsingNoteTypeName("Basic", "Q1", "A1")
+        val viewer: NonAbstractFlashcardViewer = getViewer(addCard = false)
+        viewer.onPinchZoomChangedForTest(newScale = 2.0f)
+        assertThat(viewer.cardScaleToRestore, equalTo(2.0f))
+        viewer.resetCardZoom()
+        assertThat("reset zoom clears the recorded scale", viewer.cardScaleToRestore, nullValue())
+    }
+
+    @Test
     fun defaultLanguageIsNull() {
         assertThat(viewer.hintLocale, nullValue())
     }

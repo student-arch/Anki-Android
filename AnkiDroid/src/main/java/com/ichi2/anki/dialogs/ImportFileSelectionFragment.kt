@@ -19,6 +19,7 @@ import com.ichi2.anki.R
 import com.ichi2.anki.common.analytics.Analytics
 import com.ichi2.anki.common.analytics.AnalyticsEvent.LinkClicked
 import com.ichi2.anki.common.analytics.LinkAction
+import com.ichi2.anki.importer.TextImportFragment
 import com.ichi2.anki.requireAnkiActivity
 import com.ichi2.anki.snackbar.showSnackbar
 import com.ichi2.anki.utils.MimeTypeUtils
@@ -84,6 +85,15 @@ class ImportFileSelectionFragment : DialogFragment() {
                         ),
                     )
                 }
+                if (options.importPastedText) {
+                    add(
+                        ImportEntry(
+                            R.string.import_paste_text,
+                            LinkAction.IMPORT_PASTED_TEXT,
+                            ImportFileType.PASTE_TEXT,
+                        ),
+                    )
+                }
             }
         } ?: emptyList()
     }
@@ -102,12 +112,14 @@ class ImportFileSelectionFragment : DialogFragment() {
         val importColpkg: Boolean,
         val importApkg: Boolean,
         val importTextFile: Boolean,
+        val importPastedText: Boolean = false,
     ) : Parcelable
 
     enum class ImportFileType {
         APKG,
         COLPKG,
         CSV,
+        PASTE_TEXT,
     }
 
     interface ApkgImportResultLauncherProvider {
@@ -166,6 +178,8 @@ class ImportFileSelectionFragment : DialogFragment() {
                     activity.getApkgFileImportResultLauncher().launch(intent)
                 } else if (fileType == ImportFileType.CSV && activity is CsvImportResultLauncherProvider) {
                     activity.getCsvFileImportResultLauncher().launch(intent)
+                } else if (fileType == ImportFileType.PASTE_TEXT) {
+                    activity.startActivity(TextImportFragment.getIntent(activity))
                 } else {
                     Timber.w("Activity($activity) can't handle requested import: $fileType")
                 }

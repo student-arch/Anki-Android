@@ -68,6 +68,7 @@
     <string name="custom_button_tags_key">customButtonTags</string>
     <string name="custom_button_add_card_key">customButtonAddCard</string>
     <string name="custom_button_replay_key">customButtonReplay</string>
+    <string name="custom_button_reset_zoom_key">customButtonResetZoom</string>
     <string name="custom_button_card_info_key">customButtonCardInfo</string>
     <string name="custom_button_previous_card_info_key">customButtonPreviousCardInfo</string>
     <string name="custom_button_select_tts_key">customButtonSelectTts</string>
@@ -187,6 +188,16 @@
     <string name="custom_sync_server_collection_url_key">syncBaseUrl</string>
     <string name="custom_sync_server_enabled_key">syncBaseUrl_switch</string>
     <string name="custom_sync_certificate_key">customSyncCertificate</string>
+    <!-- AI -->
+    <string name="ai_screen_key">aiScreen</string>
+    <string name="ai_providers_entry_key">aiProvidersEntry</string>
+    <string name="ai_refresh_models_key">aiRefreshModels</string>
+    <string name="ai_flashcard_category_key">aiFlashcardCategory</string>
+    <string name="ai_image_category_key">aiImageCategory</string>
+    <string name="ai_flashcard_provider_key">aiFlashcardProvider</string>
+    <string name="ai_flashcard_model_key">aiFlashcardModel</string>
+    <string name="ai_image_provider_key">aiImageProvider</string>
+    <string name="ai_image_model_key">aiImageModel</string>
     <!-- Advanced -->
     <string name="pref_advanced_screen_key">pref_screen_advanced</string>
     <string name="pref_cat_workarounds_key">category_workarounds</string>

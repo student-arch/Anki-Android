@@ -36,15 +36,19 @@ import androidx.core.view.children
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat
+import com.ichi2.anki.CollectionManager.TR
 import com.ichi2.anki.NoteEditorFragment
 import com.ichi2.anki.R
 import com.ichi2.anki.common.android.appContext
 import com.ichi2.anki.common.preferences.sharedPrefs
 import com.ichi2.anki.compat.CompatHelper
+import com.ichi2.anki.ui.windows.reviewer.whiteboard.showColorPickerDialog
 import com.ichi2.utils.AndroidUiUtils.showSoftInput
 import com.ichi2.utils.ViewGroupUtils
 import com.ichi2.utils.ViewGroupUtils.getAllChildrenRecursive
 import com.ichi2.utils.dp
+import com.ichi2.utils.negativeButton
+import com.ichi2.utils.positiveButton
 import com.ichi2.utils.show
 import com.ichi2.utils.title
 import timber.log.Timber
@@ -133,8 +137,21 @@ class Toolbar : FrameLayout {
         setupButtonWrappingText(R.id.note_editor_toolbar_button_horizontal_rule, "<hr>", "")
         findViewById<View>(R.id.note_editor_toolbar_button_font_size).setOnClickListener { displayFontSizeDialog() }
         findViewById<View>(R.id.note_editor_toolbar_button_title).setOnClickListener { displayInsertHeadingDialog() }
+        findViewById<View>(R.id.note_editor_toolbar_button_text_color).setOnClickListener { displayTextColorDialog() }
+        // the description is set from code: the equivalent XML string would duplicate
+        // a backend translation (TR.editingTextColor) which TranslationTest forbids
+        findViewById<View>(R.id.note_editor_toolbar_button_text_color).contentDescription = TR.editingTextColor()
+        findViewById<View>(R.id.note_editor_toolbar_button_highlight).setOnClickListener { displayHighlightDialog() }
+        setupButtonWrappingText(R.id.note_editor_toolbar_button_code, "<code>", "</code>")
+        findViewById<View>(R.id.note_editor_toolbar_button_list).setOnClickListener { displayInsertListDialog() }
+        findViewById<View>(R.id.note_editor_toolbar_button_clear_format).setOnClickListener { displayClearFormatDialog() }
         findViewById<View>(R.id.note_editor_toolbar_button_insert_mathjax).setOnLongClickListener {
             displayInsertMathJaxEquationsDialog()
+            true
+        }
+        // long-press inserts a block-level <pre> (multi-line code) instead of inline <code>
+        findViewById<View>(R.id.note_editor_toolbar_button_code).setOnLongClickListener {
+            onFormat(TextWrapper(prefix = "<pre><code>", suffix = "</code></pre>"))
             true
         }
 
@@ -331,6 +348,113 @@ class Toolbar : FrameLayout {
             }
             title(R.string.insert_mathjax)
         }
+    }
+
+    /**
+     * Displays a color picker and wraps the selection with
+     * `<span style="color:...">` to set the text color.
+     */
+    @SuppressLint("CheckResult")
+    private fun displayTextColorDialog() {
+        context.showColorPickerDialog(Color.BLACK) { color ->
+            onFormat(spanWithColor(color, cssProperty = "color"))
+        }
+    }
+
+    /**
+     * Displays a color picker and wraps the selection with
+     * `<span style="background-color:...">` to highlight the text.
+     */
+    @SuppressLint("CheckResult")
+    private fun displayHighlightDialog() {
+        context.showColorPickerDialog(Color.YELLOW) { color ->
+            onFormat(spanWithColor(color, cssProperty = "background-color"))
+        }
+    }
+
+    private fun spanWithColor(
+        @ColorInt color: Int,
+        cssProperty: String,
+    ): TextFormatter =
+        TextWrapper(
+            prefix = "<span style=\"$cssProperty:#${Integer.toHexString(color and 0xFFFFFF).padStart(6, '0')}\">",
+            suffix = "</span>",
+        )
+
+    /**
+     * Displays a dialog choosing between a bullet and a numbered list, then prefixes
+     * each selected line with the corresponding HTML list markup.
+     */
+    @SuppressLint("CheckResult")
+    private fun displayInsertListDialog() {
+        AlertDialog.Builder(context).show {
+            setItems(
+                arrayOf(
+                    context.getString(R.string.format_bullet_list),
+                    context.getString(R.string.format_numbered_list),
+                ),
+            ) { _, index ->
+                onFormat(ListFormatter(ordered = index == 1))
+            }
+            title(R.string.format_list_title)
+        }
+    }
+
+    /**
+     * Displays a confirmation dialog, then strips colors, highlights and formatting tags
+     * from the selection, leaving the inner text intact.
+     */
+    @SuppressLint("CheckResult")
+    private fun displayClearFormatDialog() {
+        AlertDialog
+            .Builder(context)
+            .show {
+                title(R.string.format_clear)
+                positiveButton(R.string.dialog_ok) {
+                    onFormat(ClearFormatFormatter)
+                }
+                negativeButton(R.string.dialog_cancel)
+            }
+    }
+
+    /** A [Toolbar.TextFormatter] which wraps the selection with an HTML list. */
+    class ListFormatter(
+        private val ordered: Boolean,
+    ) : TextFormatter {
+        override fun format(s: String): StringFormat {
+            val lines = s.split("\n")
+            val tag = if (ordered) "ol" else "ul"
+            val item = lines.joinToString("") { line -> "<li>$line</li>" }
+            return StringFormat(result = "<$tag>$item</$tag>").apply {
+                selectionStart = result.length
+                selectionEnd = result.length
+            }
+        }
+    }
+
+    /** A [Toolbar.TextFormatter] which removes rich formatting tags from the selection. */
+    object ClearFormatFormatter : TextFormatter {
+        private val formattingTags =
+            Regex(
+                "</?(b|i|u|strong|em|s|del|ins|mark|code|pre|h[1-6]|ol|ul|li)(\\s+[^>]*)?/?>",
+                setOf(RegexOption.IGNORE_CASE),
+            )
+        private val colorSpan = Regex("""<span\s+style\s*=\s*"[^"]*(color|background-color)[^"]*"\s*>""", setOf(RegexOption.IGNORE_CASE))
+        private val anySpan = Regex("""</?span(\s+[^>]*)?>""", setOf(RegexOption.IGNORE_CASE))
+        private val fontTag = Regex("</?font(\\s+[^>]*)?>", setOf(RegexOption.IGNORE_CASE))
+
+        override fun format(s: String): StringFormat =
+            StringFormat(
+                result =
+                    s
+                        .replace(fontTag, "")
+                        .replace(colorSpan, "")
+                        .replace(formattingTags, "")
+                        .replace(anySpan, ""),
+            ).apply {
+                selectionStart = 0
+                selectionEnd = result.length
+            }
     }
 
     /** Given a string [text], generates a [Drawable] which can be used as a button icon */

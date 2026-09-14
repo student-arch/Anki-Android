@@ -187,7 +187,7 @@ class TranslationTest : RobolectricTest() {
                 // TR.preferencesAlways()
                 // TR.importingUpdateAlways()
                 "Answer", // R.string.card_side_answer | TR.browsingAnswer()
-                "Back", // R.string.back_field_name, R.string.previewer_back
+                "Back", // R.string.back_field_name, R.string.previewer_back, R.string.ai_edit_card_back
                 // TR.notetypesBackField()
                 "Cancel", // R.string.dialog_cancel
                 // TR.actionsCancel()
@@ -237,6 +237,8 @@ class TranslationTest : RobolectricTest() {
                 // TR.changeNotetypeFields()
                 "Flags", // R.string.filter_by_flags | TR.browsingSidebarFlags()
                 "Flip", // R.string.image_cropper_action_flip | TR.cardTemplatesFlip()
+                "Front", // R.string.ai_edit_card_front
+                // TR.notetypesFrontField()
                 "General", // R.string.deck_conf_general, R.string.pref_cat_general
                 // TR.preferencesGeneral()
                 // TR.schedulingGeneral()
@@ -251,6 +253,8 @@ class TranslationTest : RobolectricTest() {
                 "Media", // R.string.media
                 // TR.editingMedia()
                 // TR.preferencesMedia()
+                "Name", // R.string.ai_provider_name_hint
+                // TR.deckConfigNamePrompt()
                 "Never", // R.string.sync_media_never | TR.importingUpdateNever()
                 "New", // R.string.tags_dialog_option_new_cards
                 // TR.actionsNew()
@@ -333,6 +337,7 @@ class TranslationTest : RobolectricTest() {
                 //                       // TR.mediaCheckCheckMediaAction()
                 //                       // TR.mediaCheckWindowTitle()
                 "Answer buttons", // R.string.answer_buttons | TR.statisticsAnswerButtonsTitle()
+                "Choose deck", // R.string.ai_choose_deck | TR.qtMiscChooseDeck()
                 "Follow system", // R.string.theme_follow_system | TR.preferencesThemeFollowSystem()
                 "Select all", // R.string.card_browser_select_all | TR.editingImageOcclusionSelectAll()
                 "Show answer", // R.string.show_answer
