@@ -174,14 +174,17 @@ open class FlashcardGenerator(
                 "(what type or format of cards they want, the focus, the style, how many) " +
                 "and learning CONTENT (the topic, notes, document or material the cards must " +
                 "teach). Follow the instructions faithfully; use only the content as the " +
-                "source of facts. First infer the subject, the learner's level and the goal " +
-                "(memorize definitions, apply formulas, solve numerical problems, understand " +
-                "code, compare concepts, recall facts, prepare for interviews/exams...), then " +
-                "choose the flashcard type and the exact set of sections that serve that goal " +
-                "- never force a fixed template on every request. Each card tests exactly one " +
-                "concept. Write in simple, plain language, matching the language of the " +
-                "material. Do not number the cards. Respond with valid JSON only; no prose " +
-                "outside the JSON."
+                "source of facts. Content can also be one or more exam questions - semester, " +
+                "mid-term/internal, slip-test, previous-year or expected papers - and then " +
+                "your job is to ANSWER every question asked, one exam-perfect flashcard at a " +
+                "time (see the exam-question rules). First infer the subject, the learner's " +
+                "level and the goal (memorize definitions, apply formulas, solve numerical " +
+                "problems, understand code, compare concepts, recall facts, prepare for " +
+                "interviews/exams...), then choose the flashcard type and the exact set of " +
+                "sections that serve that goal - never force a fixed template on every " +
+                "request. Each card tests exactly one concept. Write in simple, plain " +
+                "language, matching the language of the material. Do not number the cards. " +
+                "Respond with valid JSON only; no prose outside the JSON."
 
         private const val CORE_RULES =
             "Core rules:\n" +
@@ -235,19 +238,22 @@ open class FlashcardGenerator(
         private const val INTENT_RULES =
             "Adaptive card design (decide automatically from the input; the user configures nothing):\n" +
                 "- If the input asks for a particular kind of card (\"just definitions\", " +
-                "\"numerical problems\", \"code cards\", \"compare X and Y\", \"interview " +
-                "questions\", \"short cards\"...), produce exactly that kind and give the " +
-                "cards ONLY the sections that kind needs.\n" +
+                "\"numerical problems\", \"code cards\", \"MCQ cards\", \"true/false cards\", " +
+                "\"fill in the blanks\", \"compare X and Y\", \"interview/viva questions\", " +
+                "\"short cards\", \"one-word answers\", \"long exam answers\"...), produce " +
+                "exactly that kind and give the cards ONLY the sections that kind needs.\n" +
                 "- Otherwise infer the best type from the content: glossaries/terminology -> " +
-                "definition cards (term to meaning, no equations unless the content gives " +
-                "them); laws and equations -> formula cards (the question asks for the " +
-                "equation or its meaning; the answer carries the math plus, when the content " +
-                "states them, the variables and units); worked calculations -> " +
-                "problem-solving cards (given/formula/solution/final_answer); programming " +
-                "content -> code/output cards; mechanisms and workflows -> ordered-steps " +
+                "definition or one-word-answer cards (term to meaning, no equations unless " +
+                "the content gives them); laws and equations -> formula or formula-recall " +
+                "cards (the question asks for the equation or its meaning; the answer carries " +
+                "the math plus, when the content states them, the variables and units); worked " +
+                "calculations -> problem-solving step-by-step cards (given/formula/" +
+                "solution/final_answer); programming content -> code, syntax, debugging or " +
+                "output cards; mechanisms and workflows -> ordered-steps or diagram/process " +
                 "cards; closely related concepts -> comparison cards; dates/facts/events -> " +
-                "short fact cards; biological/chemical processes -> explanation cards; " +
-                "otherwise mixed concept cards.\n" +
+                "short fact or memory-revision cards; biological/chemical processes -> " +
+                "explanation cards; application scenarios -> example or use-case cards; viva/" +
+                "interview prep -> rapid short-answer cards; otherwise mixed concept cards.\n" +
                 "- Use ONE consistent card type, section set and question-answer style across " +
                 "the whole batch, unless the user asks for a mix or the content clearly needs " +
                 "different kinds.\n" +
@@ -261,6 +267,56 @@ open class FlashcardGenerator(
                 "- The full rich format (key_points, formula, variables, example, " +
                 "common_mistake...) is only the fallback for quantitative content when no " +
                 "narrower type fits."
+
+        /**
+         * Answer-focused handling for pasted exam questions (semester, internal/mid-term,
+         * slip-test, previous-year or expected papers). Conditional text: it applies only
+         * when the content actually consists of questions, so material/topic/paper-mixed
+         * inputs keep behaving as before. Answers use the model's accurate subject
+         * knowledge - the material-only grounding rule exists to stop padding, never to
+         * refuse to answer an asked question. Formulas follow the existing MathJax rules.
+         */
+        private const val EXAM_RULES =
+            "Exam questions (semester, mid-term/internal, slip-test, previous-year or " +
+                "important/expected papers):\n" +
+                "- If the content is one or more exam questions rather than plain study " +
+                "material, answer them: one flashcard per question - the \"question\" keeps " +
+                "the original exam wording and carries its marks/unit tag verbatim at the " +
+                "end, exactly as pasted (e.g. \"(4 marks)\", \"(Dec 2024)\") - or several " +
+                "linked cards for a long or multi-part question when splitting helps " +
+                "revision (e.g. one card per derivation stage, per sub-part, per " +
+                "assumption).\n" +
+                "- Read the demand verb before answering: define/state -> concise definition " +
+                "plus the marking buzzwords; derive/obtain -> assumptions, the formula steps " +
+                "and the final result (displayed math in \\[ ... \\]); explain/describe/discuss " +
+                "-> direct answer first, then 2-4 key points; compare/distinguish -> " +
+                "\"comparison\"; calculate/solve/find/determine -> numerical cards with " +
+                "\"given\", \"formula\", \"solution\" and \"final_answer\" with units, keeping " +
+                "every value from the question exactly; list/enumerate -> numbered " +
+                "\"key_points\"; write a program/code -> \"code\" and \"output\" with a short " +
+                "\"code_explanation\"; MCQ -> keep the options in the question, answer the " +
+                "letter plus a one-line reason; True/False -> the verdict plus a one-line " +
+                "justification; fill in the blank -> the phrase with the filled term **bold**; " +
+                "short answer -> 2-4 sentences; long answer (8-16 marks) -> a structured " +
+                "exam-style answer: intro line, steps/points, diagram description, final " +
+                "statement.\n" +
+                "- Every answer is a technically correct B.Tech exam answer for that " +
+                "subject's conventions: the depth matches the marks shown, terminology and " +
+                "symbols are standard, formulas and numeric results are exact, and it " +
+                "teaches what to remember rather than copying sentences around.\n" +
+                "- Put the terms an examiner looks for in \"exam_keywords\": a REQUIRED field " +
+                "on every exam-answer card (array of 3-6 short marking phrases) unless the " +
+                "card is a one-word-answer, true/false or fill-in-the-blank card; add " +
+                "\"formula\", \"example\", \"diagram\" or \"common_mistake\" only when they " +
+                "truly belong to that answer.\n" +
+                "- Answering asked questions from your accurate knowledge of the subject is " +
+                "expected and correct - the rule against outside facts guards against " +
+                "padding material summaries, never against answering a question. If the " +
+                "standard answer differs between textbooks, give the conventional one and " +
+                "note the alternative in one line.\n" +
+                "- Cover every question of the paper. When a fixed card count is smaller " +
+                "than the number of questions, merge related sub-parts onto one card rather " +
+                "than silently dropping any question.\n"
 
         /**
          * Math is rendered by the viewer's bundled MathJax, so the model MUST wrap equations in
@@ -313,6 +369,8 @@ open class FlashcardGenerator(
                 "in the material.\n" +
                 "- \"use_cases\", \"advantages\", \"disadvantages\", \"practical_scenario\", " +
                 "\"related_concepts\", \"interview_questions\", \"source\": only when in the material.\n" +
+                "- \"exam_keywords\": array of the short marking buzzwords an examiner expects " +
+                "in the answer - only for exam-question cards.\n" +
                 "- \"difficulty\": \"Easy\" | \"Medium\" | \"Hard\".\n" +
                 "- \"tags\": array of 2-5 short tags.\n" +
                 "Section values may be multi-line strings or arrays; do not use Markdown fences inside " +
@@ -421,9 +479,9 @@ open class FlashcardGenerator(
                 "{\"cards\": [{\"subject\": \"...\", \"topic\": \"...\", \"question\": \"...\", " +
                 "\"answer\": \"...\", \"key_points\": [\"...\"], \"formula\": \"...\", " +
                 "\"variables\": [\"...\"], \"units\": [\"...\"], \"example\": \"...\", " +
-                "\"common_mistake\": \"...\", \"difficulty\": \"Easy\", \"tags\": [\"...\"]" +
+                "\"common_mistake\": \"...\", \"exam_keywords\": [\"...\"], \"difficulty\": \"Easy\", \"tags\": [\"...\"]" +
                 "${if (includeImages) ", \"image_prompt\": \"<diagram instruction or empty string>\"" else ""}]}]}\n\n" +
-                "$coreRules\n\n$INTENT_RULES\n\n$MATH_RULES\n\n$SECTION_SPEC\n\n" +
+                "$coreRules\n\n$INTENT_RULES\n\n$EXAM_RULES\n\n$MATH_RULES\n\n$SECTION_SPEC\n\n" +
                 "${if (includeImages) IMAGE_SPEC else NO_IMAGE_SPEC}\n\n" +
                 "$QUALITY_RULES\n\n" +
                 "$sourceLabel:\n$material"

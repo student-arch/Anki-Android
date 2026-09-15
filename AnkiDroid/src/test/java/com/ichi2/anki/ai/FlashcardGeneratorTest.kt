@@ -208,6 +208,64 @@ class FlashcardGeneratorTest : RobolectricTest() {
         }
 
     @Test
+    fun `exam paper content gets per-question answering rules`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "material", 1)
+
+            val prompt = capturedPrompt.orEmpty()
+            assertThat(prompt, containsString("Exam questions"))
+            assertThat(prompt, containsString("one flashcard per question"))
+            assertThat(prompt, containsString("exam_keywords"))
+            assertThat(prompt, containsString("Cover every question"))
+            // pasted questions are answered from knowledge: the material-only grounding rule
+            // must never swallow the exam mode ("never against answering a question")
+            assertThat(prompt, containsString("never against answering a question"))
+        }
+
+    @Test
+    fun `card-type repertoire covers MCQ true-false and fill-in-the-blank forms`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "material", 1)
+
+            val prompt = capturedPrompt.orEmpty()
+            assertThat(prompt, containsString("MCQ cards"))
+            assertThat(prompt, containsString("true/false cards"))
+            assertThat(prompt, containsString("fill in the blanks"))
+            assertThat(prompt, containsString("formula-recall"))
+            assertThat(prompt, containsString("syntax"))
+            assertThat(prompt, containsString("debugging"))
+            assertThat(prompt, containsString("viva"))
+        }
+
+    @Test
     fun `auto count instruction delegates the number to the model`() =
         runTest {
             var capturedPrompt: String? = null

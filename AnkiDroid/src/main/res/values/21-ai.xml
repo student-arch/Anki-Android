@@ -49,7 +49,7 @@
     <string name="menu_generate_flashcards" maxLength="28">Generate flashcards</string>
     <string name="ai_setup_hint">No AI provider is configured. Tap here to set one up in the settings.</string>
     <string name="ai_material_label">What do you want to learn?</string>
-    <string name="ai_material_hint">Paste learning material or describe a topic, e.g. \u201cKey concepts of photosynthesis\u201d. You can also say what kind of cards you want, e.g. \u201cjust definitions\u201d or \u201cnumerical problems with worked steps\u201d.</string>
+    <string name="ai_material_hint">Paste learning material, describe a topic, or paste exam / slip-test / previous-year question papers and get an exam-perfect answer card for every question. You can also say what kind of cards you want, e.g. \u201cjust definitions\u201d or \u201cnumerical problems with worked steps\u201d.</string>
     <string name="ai_card_count_label">How many cards?</string>
     <string name="ai_default_card_count" comment="Default number of cards to generate">10</string>
     <string name="ai_generating">Generating flashcards\u2026</string>

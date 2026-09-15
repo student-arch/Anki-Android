@@ -258,6 +258,26 @@ class FlashcardParserTest : RobolectricTest() {
     }
 
     @Test
+    fun `exam keywords array becomes a bulleted section after source`() {
+        val text =
+            """
+            {"cards": [{
+              "question": "Derive the EMF equation of a transformer (8 marks)",
+              "answer": "E = 4.44 f N \u03a6m, from Faraday's law with \u03a6 = \u03a6m sin\u03c9t.",
+              "source": "Dec 2024 Q3",
+              "exam_keywords": ["Faraday's law", "maximum flux", "form factor 4.44"]
+            }]}
+            """.trimIndent()
+        val card = FlashcardParser.parse(text)[0]
+        val labels = card.sections.map { it.label }
+        assertThat(labels, equalTo(listOf("Source", "Exam Keywords")))
+        assertThat(
+            card.sections.last().content,
+            equalTo("\u2022 Faraday's law\n\u2022 maximum flux\n\u2022 form factor 4.44"),
+        )
+    }
+
+    @Test
     fun `numerical problem sections are parsed in order`() {
         val text =
             """

@@ -51,6 +51,7 @@ object FlashcardParser {
             "diagram" to "Diagram",
             "interview_questions" to "Interview Questions",
             "source" to "Source",
+            "exam_keywords" to "Exam Keywords",
         )
 
     /**
@@ -153,7 +154,7 @@ object FlashcardParser {
     private fun parseSections(card: JSONObject): List<CardSection> {
         val language = normalize(card.optString("code_language"))
         return SECTION_KEYS.mapNotNull { (key, label) ->
-            val content = textOf(card, key, bullet = key == "key_points") ?: return@mapNotNull null
+            val content = textOf(card, key, bullet = key in setOf("key_points", "exam_keywords")) ?: return@mapNotNull null
             val displayLabel = if (key == "code" && language != null) "$label ($language)" else label
             CardSection(label = displayLabel, content = content)
         }

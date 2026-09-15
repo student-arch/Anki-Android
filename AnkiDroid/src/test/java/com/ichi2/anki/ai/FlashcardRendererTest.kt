@@ -345,6 +345,38 @@ class FlashcardRendererTest {
     }
 
     @Test
+    fun `exam question card renders answer formulas and keywords through the existing pipeline`() {
+        // a question-paper card: derivation answer with display math + exam keywords.
+        // Math formatting must be untouched by the exam-question feature.
+        val card =
+            GeneratedFlashcard(
+                front = "Derive the EMF equation of a transformer (8 marks)",
+                back =
+                    """
+                    From Faraday's law, e = N d\u03a6/dt with \u03a6 = \u03a6m sin\u03c9t.
+                    \[
+                    E_{rms} = 4.44 f N \Phi_m
+                    \]
+                    """.trimIndent(),
+                sections =
+                    listOf(
+                        CardSection("Exam Keywords", "\u2022 maximum flux\n\u2022 form factor 4.44"),
+                    ),
+            )
+        val html = FlashcardRenderer.ankiFront(card) + FlashcardRenderer.ankiBack(card)
+        assertThat(
+            html,
+            containsString(
+                """\[
+E_{rms} = 4.44 f N \Phi_m
+\]""",
+            ),
+        )
+        assertThat(html, containsString("<b>Exam Keywords</b><br>\u2022 maximum flux<br>\u2022 form factor 4.44"))
+        assertThat(html, not(containsString("<pre>")))
+    }
+
+    @Test
     fun `review text shows a required image description`() {
         val card =
             GeneratedFlashcard(
