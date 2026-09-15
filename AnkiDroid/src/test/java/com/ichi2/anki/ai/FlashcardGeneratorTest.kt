@@ -156,6 +156,81 @@ class FlashcardGeneratorTest : RobolectricTest() {
         }
 
     @Test
+    fun `system prompt separates user instructions from learning content`() =
+        runTest {
+            var capturedSystem: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedSystem = systemPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "material", 1)
+
+            val prompt = capturedSystem.orEmpty()
+            // the model must tell instructions (card type/format/count) from content and
+            // choose a fitting schema instead of a fixed template
+            assertThat(prompt, containsString("INSTRUCTIONS"))
+            assertThat(prompt, containsString("never force a fixed template"))
+        }
+
+    @Test
+    fun `user prompt teaches adaptive card-type selection with the rich schema as fallback only`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "material", 1)
+
+            val prompt = capturedPrompt.orEmpty()
+            assertThat(prompt, containsString("Adaptive card design"))
+            assertThat(prompt, containsString("just definitions"))
+            assertThat(prompt, containsString("ONE consistent card type"))
+            assertThat(prompt, containsString("only the fallback"))
+        }
+
+    @Test
+    fun `auto count instruction delegates the number to the model`() =
+        runTest {
+            var capturedPrompt: String? = null
+            val client =
+                object : AiClient() {
+                    override suspend fun chatCompletion(
+                        provider: AiProvider,
+                        modelId: String,
+                        systemPrompt: String,
+                        userPrompt: String,
+                        jsonMode: Boolean,
+                    ): String {
+                        capturedPrompt = userPrompt
+                        return cardsJson("What is a valid first question about the topic?")
+                    }
+                }
+            FlashcardGenerator(client).generate(provider, "m", "material", FlashcardGenerator.COUNT_AUTO)
+
+            // no fixed count: the model picks a sensible number itself
+            assertThat(capturedPrompt.orEmpty(), containsString("pick the number yourself"))
+        }
+
+    @Test
     fun `duplicate questions across attempts are deduplicated`() =
         runTest {
             val client =

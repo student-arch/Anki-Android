@@ -330,6 +330,21 @@ class FlashcardRendererTest {
     }
 
     @Test
+    fun `schema-light definition card keeps formula rendering intact`() {
+        // adaptive generation may emit cards with only question/answer/definition; the
+        // formula pipeline must be untouched by that: inline math still canonical, no <pre>
+        val card =
+            GeneratedFlashcard(
+                front = "Define the time constant \\( \\tau \\) of an RC circuit",
+                back = "The time constant is \\( \\tau = RC \\): the time to reach ~63% of full charge.",
+                sections = listOf(CardSection("Definition", "Product of resistance and capacitance.")),
+            )
+        val html = FlashcardRenderer.ankiFront(card) + FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("""\( \tau = RC \)"""))
+        assertThat(html, not(containsString("<pre>")))
+    }
+
+    @Test
     fun `review text shows a required image description`() {
         val card =
             GeneratedFlashcard(

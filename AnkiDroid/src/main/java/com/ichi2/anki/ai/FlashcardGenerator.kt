@@ -169,31 +169,33 @@ open class FlashcardGenerator(
             )
 
         private const val SYSTEM_PROMPT =
-            "You transform user-provided learning material into high-quality flashcards for " +
-                "Anki, optimized for ENGINEERING STUDENTS. The user's provided topic, text, notes, " +
-                "document or learning material is the ONLY knowledge source. First identify the " +
-                "engineering branch and subject from the material (e.g. Computer Science/IT, " +
-                "Electrical, Electronics & Communication, Mechanical, Civil, Chemical, Aerospace, " +
-                "Biomedical, Automobile Engineering, Engineering Mathematics/Physics/Chemics/" +
-                "Mechanics); if the material is not engineering, still make the best flashcards " +
-                "from it. Structure each card the way an engineering student revises: precise " +
-                "terminology, formulas with variables and units, worked numerical examples, and " +
-                "clear diagrams \u2014 but ONLY using what the material provides. Each card tests " +
-                "exactly one concept. Write in simple, plain language. Do not number the cards. " +
-                "Respond with valid JSON only; no prose outside the JSON."
+            "You transform what the user provides into high-quality flashcards for Anki. " +
+                "The user's input can contain two kinds of text: generation INSTRUCTIONS " +
+                "(what type or format of cards they want, the focus, the style, how many) " +
+                "and learning CONTENT (the topic, notes, document or material the cards must " +
+                "teach). Follow the instructions faithfully; use only the content as the " +
+                "source of facts. First infer the subject, the learner's level and the goal " +
+                "(memorize definitions, apply formulas, solve numerical problems, understand " +
+                "code, compare concepts, recall facts, prepare for interviews/exams...), then " +
+                "choose the flashcard type and the exact set of sections that serve that goal " +
+                "- never force a fixed template on every request. Each card tests exactly one " +
+                "concept. Write in simple, plain language, matching the language of the " +
+                "material. Do not number the cards. Respond with valid JSON only; no prose " +
+                "outside the JSON."
 
         private const val CORE_RULES =
             "Core rules:\n" +
                 "- Generate flashcards only from the information provided by the user; do not use " +
                 "external knowledge to add facts, values, formulas, examples or explanations.\n" +
-                "- Do not invent engineering data: never fabricate numbers, constants, units, " +
+                "- Do not invent data: never fabricate numbers, constants, units, dates, " +
                 "circuit values, material properties or standard values that are not in the " +
                 "material. If a formula/numerical example is not supported by the content, omit it.\n" +
                 "- Preserve important terminology, names, symbols, formulas, units, dimensions and " +
                 "definitions exactly as the material states them.\n" +
                 "- Do not change the meaning of the provided information; if it conflicts, keep it.\n" +
-                "- Include a section ONLY when the material supports it; otherwise omit it entirely " +
-                "(never leave a section empty or fill it with generic text).\n" +
+                "- Include a section ONLY when the card type you selected needs it and the " +
+                "material supports it; otherwise omit it entirely (never leave a section empty " +
+                "or fill it with generic text).\n" +
                 "- Focus on important, learnable information; do not create unnecessary cards.\n" +
                 "- Every card must be SELF-CONTAINED: never mention \"the material\", \"the text\", " +
                 "\"the passage\", \"the user\" or \"the provided content\" inside a question or " +
@@ -225,6 +227,42 @@ open class FlashcardGenerator(
                 "every card must be strong, distinct and accurate."
 
         /**
+         * The intent model: read the user's instructions and the content's nature, then
+         * pick ONE card type and only the sections it needs. The rich generic schema is
+         * the fallback, never the default. Prompt-layer only: the parser, renderer and the
+         * formula pipeline accept whatever subset of sections the chosen type emits.
+         */
+        private const val INTENT_RULES =
+            "Adaptive card design (decide automatically from the input; the user configures nothing):\n" +
+                "- If the input asks for a particular kind of card (\"just definitions\", " +
+                "\"numerical problems\", \"code cards\", \"compare X and Y\", \"interview " +
+                "questions\", \"short cards\"...), produce exactly that kind and give the " +
+                "cards ONLY the sections that kind needs.\n" +
+                "- Otherwise infer the best type from the content: glossaries/terminology -> " +
+                "definition cards (term to meaning, no equations unless the content gives " +
+                "them); laws and equations -> formula cards (the question asks for the " +
+                "equation or its meaning; the answer carries the math plus, when the content " +
+                "states them, the variables and units); worked calculations -> " +
+                "problem-solving cards (given/formula/solution/final_answer); programming " +
+                "content -> code/output cards; mechanisms and workflows -> ordered-steps " +
+                "cards; closely related concepts -> comparison cards; dates/facts/events -> " +
+                "short fact cards; biological/chemical processes -> explanation cards; " +
+                "otherwise mixed concept cards.\n" +
+                "- Use ONE consistent card type, section set and question-answer style across " +
+                "the whole batch, unless the user asks for a mix or the content clearly needs " +
+                "different kinds.\n" +
+                "- Exclude everything that does not serve the chosen type: a definition batch " +
+                "gets no equations or code; a formula batch no long prose or use-case lists; " +
+                "a fact batch no key_points filler. Omitting a section entirely is always " +
+                "better than padding it with generic text.\n" +
+                "- Match phrasing and detail to the subject: exact equations, symbols and units " +
+                "for quantitative fields; concise plain wording for humanities and languages; " +
+                "real identifiers and output for programming.\n" +
+                "- The full rich format (key_points, formula, variables, example, " +
+                "common_mistake...) is only the fallback for quantitative content when no " +
+                "narrower type fits."
+
+        /**
          * Math is rendered by the viewer's bundled MathJax, so the model MUST wrap equations in
          * MathJax delimiters — raw LaTeX without them displays as literal text.
          * All the packages below are compiled into the app's MathJax build.
@@ -244,15 +282,18 @@ open class FlashcardGenerator(
 
         private const val SECTION_SPEC =
             "Each card is a JSON object. Always include \"question\" and \"answer\"; include any of " +
-                "the optional sections below ONLY when the material supports them:\n" +
-                "- \"subject\": the engineering branch/subject (e.g. \"Electrical Engineering\").\n" +
+                "the optional sections below ONLY when they serve the card type you selected AND " +
+                "the material supports them - a section irrelevant to the chosen type is omitted, " +
+                "even when the material could supply it:\n" +
+                "- \"subject\": the subject area (e.g. \"Electrical Engineering\", \"Cell Biology\", \"Data Structures\").\n" +
                 "- \"topic\": the specific topic (e.g. \"Ohm's Law\").\n" +
-                "- \"question\": one focused question testing one concept. Vary the type across cards: " +
-                "definition, conceptual, formula, calculation, application, comparison, process, " +
-                "diagram-interpretation, problem-solving, code, troubleshooting, design principle.\n" +
+                "- \"question\": one focused question testing one concept, phrased in the style of " +
+                "the chosen card type (definition, formula, calculation, comparison, code, " +
+                "steps, fact, conceptual...); only in a deliberately mixed batch vary the " +
+                "question types from card to card.\n" +
                 "- \"answer\": the direct answer first, then a 1-3 sentence explanation of the key " +
                 "point so the card teaches the concept (drawn only from the material); " +
-                "technically accurate, using correct engineering terminology; wrap important " +
+                "accurate, using the correct terminology of the subject; wrap important " +
                 "terms in **bold**.\n" +
                 "- \"key_points\": array of 2-5 essential points (symbols, relationships, units).\n" +
                 "- \"definition\", \"explanation\": only if present in the material.\n" +
@@ -293,8 +334,8 @@ open class FlashcardGenerator(
 
         private const val QUALITY_RULES =
             "Writing style (every card):\n" +
-                "- Be concise and easy to revise quickly; use correct engineering terminology and " +
-                "explain any term the material introduces.\n" +
+                "- Be concise and easy to revise quickly; use correct terminology for the " +
+                "subject and explain any term the material introduces.\n" +
                 "- The question must be specific and self-contained, name the exact concept being " +
                 "tested, and must not hint at the answer.\n" +
                 "- The answer must be self-contained and informative: state the direct answer " +
@@ -302,12 +343,14 @@ open class FlashcardGenerator(
                 "teaches the concept. A bare \"yes/no\", a lone word or a number without its " +
                 "meaning is never an acceptable answer; use **bold** for key terms/symbols.\n" +
                 "- Prefer one concept per card over cramming several facts into one answer.\n" +
-                "Engineering quality checklist before returning:\n" +
-                "- Formulas, variables and units must be correct and taken from the material.\n" +
+                "Quality checklist before returning (skip items that do not apply to the\n" +
+                "chosen card type):\n" +
+                "- When a card shows formulas: variables and units must be correct and taken from " +
+                "the material.\n" +
                 "- For numerical cards: verify the calculation and the units, show the formula, and " +
                 "state the final answer clearly with its unit.\n" +
-                "- Diagrams must use standard engineering conventions and correct labels/arrows; " +
-                "never depict something technically wrong.\n" +
+                "- When you include a diagram: it must use standard conventions and correct " +
+                "labels/arrows; never depict something technically wrong.\n" +
                 "- Hide (omit) every section that is null, empty or not applicable.\n" +
                 "- Remove duplicate, irrelevant and vague cards; every answer must be traceable to " +
                 "the material and consistent with its question; do not hallucinate missing data. " +
@@ -336,8 +379,11 @@ open class FlashcardGenerator(
         ): String {
             val source = if (isTopic) "the key concepts of the topic" else "the material"
             if (count == COUNT_AUTO) {
-                return "Generate enough cards to cover the important information about $source; " +
-                    "prefer high-quality cards over unnecessary quantity."
+                return "Generate enough cards to cover the important information about $source: " +
+                    "pick the number yourself from the material's depth and breadth (typically " +
+                    "6-15), cover every major concept at least once, split large concepts into " +
+                    "separate cards instead of repeating small ones, and prefer high-quality " +
+                    "cards over unnecessary quantity."
             }
             if (generatedFronts.isEmpty()) {
                 return "Generate EXACTLY $count flashcards about $source — neither fewer nor more. " +
@@ -377,7 +423,7 @@ open class FlashcardGenerator(
                 "\"variables\": [\"...\"], \"units\": [\"...\"], \"example\": \"...\", " +
                 "\"common_mistake\": \"...\", \"difficulty\": \"Easy\", \"tags\": [\"...\"]" +
                 "${if (includeImages) ", \"image_prompt\": \"<diagram instruction or empty string>\"" else ""}]}]}\n\n" +
-                "$coreRules\n\n$MATH_RULES\n\n$SECTION_SPEC\n\n" +
+                "$coreRules\n\n$INTENT_RULES\n\n$MATH_RULES\n\n$SECTION_SPEC\n\n" +
                 "${if (includeImages) IMAGE_SPEC else NO_IMAGE_SPEC}\n\n" +
                 "$QUALITY_RULES\n\n" +
                 "$sourceLabel:\n$material"
