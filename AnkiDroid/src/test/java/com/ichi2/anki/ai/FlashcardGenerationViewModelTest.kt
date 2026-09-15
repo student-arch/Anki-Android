@@ -242,6 +242,21 @@ class FlashcardGenerationViewModelTest : RobolectricTest() {
     }
 
     @Test
+    fun `front math is normalized when written to the note`() =
+        runTest {
+            val card = GeneratedFlashcard(front = "Solve ${'$'}x^2 = 4${'$'}", back = "x = \\pm 2")
+            viewModel.updateCards(listOf(card))
+            viewModel.toggleAccepted(card.id, true)
+
+            viewModel.addAcceptedCards(viewModel.acceptedCards(), deckId = null, createDeck = true, newDeckName = "FrontMath")
+            RobolectricTest.advanceRobolectricLooperUntil(condition = { viewModel.uiState.value is GenerationUiState.Done })
+
+            val noteIds = withCol { findNotes("deck:\"FrontMath\"") }
+            val note = withCol { getNote(noteIds.first()) }
+            assertThat(note.fields[0], equalTo("""Solve \(x^2 = 4\)"""))
+        }
+
+    @Test
     fun `sections and tags are written to the added notes`() =
         runTest {
             val cards =

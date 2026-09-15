@@ -19,6 +19,11 @@
         android:title="@string/ai_refresh_models_title"
         android:summary="@string/ai_refresh_models_summary" />
 
+    <Preference
+        android:key="@string/ai_math_debug_key"
+        android:summary="@string/ai_math_debug_summary"
+        android:title="@string/ai_math_debug_title" />
+
     <PreferenceCategory
         android:key="@string/ai_flashcard_category_key"
         android:title="@string/ai_task_flashcards">

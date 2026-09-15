@@ -38,5 +38,11 @@ class MathJaxClozeTest : InMemoryAnkiTest() {
         assertTrue(MathJax.textContainsMathjax("This is an block equation! \\[1 \\div 2 = 1 \\div 2 \\]"))
         assertFalse(MathJax.textContainsMathjax("This has mismatched brackets! \\[1 \\div 2 = 1 \\div 2 \\)"))
         assertFalse(MathJax.textContainsMathjax("This has mismatched brackets too! \\(1 \\div 2 = 1 \\div 2 \\]"))
+        // Markdown dollar math (as emitted by many AI sources and typed by users)
+        assertTrue(MathJax.textContainsMathjax("Solve ${'$'}x^2 + 5x + 6 = 0${'$'} for x"))
+        assertTrue(MathJax.textContainsMathjax("Display: ${'$'}${'$'}x = 1${'$'}${'$'}"))
+        // money and lone dollars are not math
+        assertFalse(MathJax.textContainsMathjax("It costs ${'$'}5 today"))
+        assertFalse(MathJax.textContainsMathjax("A lone ${'$'} dollar"))
     }
 }

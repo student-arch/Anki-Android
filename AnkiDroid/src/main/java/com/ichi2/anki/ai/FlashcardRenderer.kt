@@ -3,21 +3,18 @@
 package com.ichi2.anki.ai
 
 /**
- * Renders [GeneratedFlashcard]s for display: the Anki note's back field (HTML) and the
- * plain-text preview shown in the review list.
+ * Renders [GeneratedFlashcard]s for display: the Anki note's front and back fields
+ * (HTML) and the plain-text preview shown in the review list.
  *
- * Sections are appended below the answer as labeled blocks; code-like sections are
- * rendered in `<pre>` so layout, indentation and line breaks are preserved.
- *
- * Math the model emits inside MathJax delimiters (`\(...\)`, `\[...\]`) must reach the
- * card HTML untouched: the reviewer typesets it with the bundled MathJax (chemistry
- * `\ce{...}`, quantum `\ket{...}`/`\braket{...}` and all TeX are compiled in). Two
- * things would break that:
- * * HTML escaping inside the delimiters (an `&` in a matrix becomes `&amp;`, `<` in
- *   text with `<x` becomes a broken tag), so math spans are escaped as a unit with
- *   their delimiters intact;
- * * MathJax skips `<pre>`/`<code>` content (`skipHtmlTags`), so formula sections
- *   containing delimiters render in normal flow instead.
+ * Content flows through [MathNormalizer.segments] first, so each piece is known to be
+ * text, inline math, display math or code — the renderer never guesses:
+ * * [Segment.Text] is HTML-escaped (with `**bold**` markdown converted),
+ * * [Segment.InlineMath]/[Segment.DisplayMath] is emitted verbatim with its canonical
+ *   `\( ... \)`/`\[ ... \]` delimiters so the reviewer's bundled MathJax (mhchem,
+ *   braket, physics and all TeX compiled in) typesets it — escaping inside delimiters
+ *   would break the TeX (an `&` in a matrix, `<` in prose),
+ * * code sections are rendered in `<pre>` (MathJax skips pre/code content, so any
+ *   section that contains math renders in normal flow instead).
  */
 object FlashcardRenderer {
     /** Base labels rendered in `<pre>` (monospace, layout preserved) instead of prose markup. */
@@ -36,54 +33,64 @@ object FlashcardRenderer {
         )
 
     /**
-     * Matches a complete math span the model may emit: inline `\(...\)` or block `\[...\]`,
-     * including any nested braces (balanced-count, not regex-exact, to stay forgiving).
+     * Labels whose content is literal code or ASCII art: `^`, `_` and `\` there are part of
+     * the program/diagram, never undelimited math. Formula-style sections are NOT in this
+     * set — bare LaTeX in them is math that MathJax must typeset (never inside `<pre>`).
      */
-    private val mathSpan = Regex("""\\[(\[]((?:[^\\\[\]]|\\.)*)\\[)\]]""")
+    private val LITERAL_CODE_LABELS = setOf("Syntax", "Code", "Output", "Diagram")
+
+    /** @return the HTML for the Anki note's FRONT field built from [card]. */
+    fun ankiFront(card: GeneratedFlashcard): String = renderProse(card.front)
 
     /** @return the HTML for the Anki note's back field built from [card] (without the image). */
     fun ankiBack(card: GeneratedFlashcard): String {
         val header = subjectHeader(card)
-        val answer = renderMathAware(card.back).replace("\n", "<br>")
+        val answer = renderProse(card.back)
         if (card.sections.isEmpty()) return header + answer
         val sections =
             card.sections.joinToString(separator = "") { section ->
-                val isCode = section.label.substringBefore(" (") in CODE_LABELS
-                val hasMath = mathSpan.containsMatchIn(section.content)
+                val label = section.label.substringBefore(" (")
+                val isCode = label in CODE_LABELS
+                val literalCode = label in LITERAL_CODE_LABELS
+                val hasMath = MathNormalizer.containsMath(section.content, allowBareLines = !literalCode)
                 if (isCode && !hasMath) {
                     "<div><b>${htmlEscape(section.label)}</b><pre>${htmlEscape(section.content)}</pre></div>"
                 } else {
-                    "<div><b>${htmlEscape(section.label)}</b><br>${renderMathAware(section.content).replace("\n", "<br>")}</div>"
+                    "<div><b>${htmlEscape(section.label)}</b><br>${renderProse(section.content, allowBare = !literalCode)}</div>"
                 }
             }
         return header + answer + sections
     }
 
     /**
-     * HTML-escapes [text] for the card, leaving math spans (`\(...\)`, `\[...\]`) untouched
-     * so MathJax receives the TeX exactly as the model wrote it. Text between/around the
-     * spans is escaped normally.
+     * Renders prose that may contain math in any AI-emitted format: the text is
+     * normalized (dollar/Unicode/bare-LaTeX formats -> canonical delimiters), split into
+     * segments, each [Segment.Text] HTML-escaped (with `**bold**` -> `<b>`) and each math
+     * segment emitted verbatim. Newlines in the text parts become `<br>`.
      */
-    private fun renderMathAware(text: String): String {
-        val bolded = boldToHtml(htmlEscapeOutsideMath(text))
-        return bolded
-    }
-
-    /** Escapes [text] except inside math spans, which are kept verbatim. */
-    private fun htmlEscapeOutsideMath(text: String): String =
-        buildString {
-            var index = 0
-            while (index < text.length) {
-                val match = mathSpan.find(text, index)
-                if (match == null) {
-                    append(htmlEscape(text.substring(index)))
-                    break
+    private fun renderProse(
+        text: String,
+        allowBare: Boolean = true,
+    ): String =
+        MathNormalizer
+            .segments(text, allowBare = allowBare)
+            .joinToString(separator = "") { segment ->
+                when (segment) {
+                    is Segment.Text -> boldToHtml(htmlEscape(segment.text)).replace("\n", "<br>")
+                    is Segment.InlineMath -> inlineHtml(segment)
+                    is Segment.DisplayMath -> displayHtml(segment)
                 }
-                append(htmlEscape(text.substring(index, match.range.first)))
-                append(match.value)
-                index = match.range.last + 1
             }
-        }
+
+    /**
+     * Display math keeps its `\[ ... \]` delimiters (MathJax typesets those as a proper
+     * centered block with display style), wrapped in a spacing div so it never shares
+     * a line with surrounding prose.
+     */
+    private fun displayHtml(segment: Segment.DisplayMath): String =
+        "<div style=\"text-align:center;margin:0.4em 0;\">" + DISPLAY_OPEN + segment.tex + DISPLAY_CLOSE + "</div>"
+
+    private fun inlineHtml(segment: Segment.InlineMath): String = INLINE_OPEN + segment.tex + INLINE_CLOSE
 
     /** Converts `**bold**` markdown (as emitted by the model) to `<b>` after HTML escaping. */
     private fun boldToHtml(escaped: String): String = Regex("\\*\\*(.+?)\\*\\*").replace(escaped) { "<b>${it.groupValues[1]}</b>" }
@@ -108,12 +115,21 @@ object FlashcardRenderer {
     fun reviewText(card: GeneratedFlashcard): String {
         val parts = mutableListOf<String>()
         listOfNotNull(card.subject, card.topic).takeIf { it.isNotEmpty() }?.let { parts += it.joinToString(" \u00b7 ") }
-        parts += stripBold(card.back)
-        card.sections.forEach { parts += "${it.label}\n${stripBold(it.content)}" }
+        parts += stripBold(MathNormalizer.normalize(card.back))
+        card.sections.forEach {
+            val literal = isLiteralCodeSection(it.label)
+            parts +=
+                "${it.label}\n" +
+                stripBold(
+                    MathNormalizer.normalize(it.content, isCode = literal, allowBare = !literal),
+                )
+        }
         card.imageUrl?.let { parts += "Image\n$it" }
         if (card.image.required) parts += "Image\n${card.image.alt ?: card.image.prompt ?: "(generated illustration)"}"
         return parts.joinToString(separator = "\n\n")
     }
+
+    private fun isLiteralCodeSection(label: String): Boolean = label.substringBefore(" (") in LITERAL_CODE_LABELS
 
     private fun htmlEscape(text: String): String =
         text
@@ -121,4 +137,12 @@ object FlashcardRenderer {
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
+
+    private const val INLINE_OPEN = "\\("
+
+    private const val INLINE_CLOSE = "\\)"
+
+    private const val DISPLAY_OPEN = "\\["
+
+    private const val DISPLAY_CLOSE = "\\]"
 }

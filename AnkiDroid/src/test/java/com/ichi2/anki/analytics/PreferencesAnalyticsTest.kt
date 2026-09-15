@@ -99,6 +99,7 @@ class PreferencesAnalyticsTest : RobolectricTest() {
             R.string.ai_screen_key, // aiScreen
             R.string.ai_providers_entry_key, // aiProvidersEntry
             R.string.ai_refresh_models_key, // aiRefreshModels
+            R.string.ai_math_debug_key, // aiMathDebug
             R.string.ai_flashcard_category_key, // aiFlashcardCategory
             R.string.ai_image_category_key, // aiImageCategory
             R.string.ai_flashcard_provider_key, // aiFlashcardProvider

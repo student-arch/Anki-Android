@@ -33,6 +33,7 @@ class AiSettingsFragment : SettingsFragment() {
     override fun initSubscreen() {
         setupProvidersEntry()
         setupRefreshModels()
+        setupMathDebug()
         refreshTaskSelections()
     }
 
@@ -60,6 +61,15 @@ class AiSettingsFragment : SettingsFragment() {
         val refresh = requirePreference<Preference>(R.string.ai_refresh_models_key)
         refresh.setOnPreferenceClickListener {
             refreshAllProviderModels()
+            true
+        }
+    }
+
+    /** Opens the math rendering test screen (typesets the equation suite via MathJax). */
+    private fun setupMathDebug() {
+        val debug = requirePreference<Preference>(R.string.ai_math_debug_key)
+        debug.setOnPreferenceClickListener {
+            startActivity(MathDebugFragment.getIntent(requireContext()))
             true
         }
     }

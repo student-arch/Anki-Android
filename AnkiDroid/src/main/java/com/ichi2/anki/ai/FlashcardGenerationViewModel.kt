@@ -600,7 +600,7 @@ class FlashcardGenerationViewModel
         ): List<Note> =
             cards.map { card ->
                 val note = newNote(notetype)
-                note.setField(0, card.front)
+                note.setField(0, FlashcardRenderer.ankiFront(card))
                 if (note.fields.size > 1) {
                     val image = _imageStates.value[card.id] as? CardImageState.Ready
                     val imageTag =

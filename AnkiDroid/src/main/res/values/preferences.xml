@@ -192,6 +192,7 @@
     <string name="ai_screen_key">aiScreen</string>
     <string name="ai_providers_entry_key">aiProvidersEntry</string>
     <string name="ai_refresh_models_key">aiRefreshModels</string>
+    <string name="ai_math_debug_key">aiMathDebug</string>
     <string name="ai_flashcard_category_key">aiFlashcardCategory</string>
     <string name="ai_image_category_key">aiImageCategory</string>
     <string name="ai_flashcard_provider_key">aiFlashcardProvider</string>

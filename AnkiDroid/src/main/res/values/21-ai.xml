@@ -14,6 +14,9 @@
     <string name="ai_model_none_selected">Select a provider first</string>
     <string name="ai_refresh_models_title" maxLength="41">Refresh model lists</string>
     <string name="ai_refresh_models_summary">Fetch the available models from all configured providers</string>
+    <string name="ai_math_debug_title" maxLength="41" comment="Developer screen rendering a suite of equations through the math pipeline">Math rendering test</string>
+    <string name="ai_math_debug_summary" comment="Entry on the AI settings screen opening the math test screen">Render a suite of equations to verify math rendering</string>
+    <string name="ai_math_debug_source" comment="Header above the normalized TeX source shown for comparison">Normalized source</string>
     <string name="ai_models_refreshed">Model lists updated</string>
     <string name="ai_models_refresh_failed" comment="%d is the number of providers whose models could not be fetched">Could not refresh models for %d provider(s)</string>
     <string name="ai_task_flashcards" maxLength="41">Flashcard generation</string>

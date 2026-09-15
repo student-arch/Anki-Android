@@ -42,6 +42,48 @@ object MathJax {
                 return true
             }
         }
+
+        // Markdown-style $ / $$ math: a closing delimiter must exist after an opening
+        // one (with the opening not followed and the closing not preceded by whitespace,
+        // so money like "$5 and $10" does not trigger a MathJax load).
+        return containsDollarMath(txt)
+    }
+
+    /**
+     * @return true when [txt] contains a plausible `$...$` (inline) or `$$...$$`
+     * (display) math span. Conservative by design: only a well-formed pair counts.
+     */
+    private fun containsDollarMath(txt: String): Boolean {
+        var i = 0
+        while (i < txt.length) {
+            when {
+                txt.startsWith("$$", i) -> {
+                    val close = txt.indexOf("$$", i + 2)
+                    if (close > i + 1) return true
+                    i += 2
+                }
+                txt[i] == '$' -> {
+                    val next = txt.getOrNull(i + 1)
+                    if (next == null || next.isWhitespace() || next == '$') {
+                        i++
+                        continue
+                    }
+                    // find a closing $ on the same line, not preceded by whitespace
+                    var j = i + 1
+                    var found = false
+                    while (j < txt.length && txt[j] != '\n') {
+                        if (txt[j] == '$' && !txt[j - 1].isWhitespace()) {
+                            found = true
+                            break
+                        }
+                        j++
+                    }
+                    if (found) return true
+                    i++
+                }
+                else -> i++
+            }
+        }
         return false
     }
 }

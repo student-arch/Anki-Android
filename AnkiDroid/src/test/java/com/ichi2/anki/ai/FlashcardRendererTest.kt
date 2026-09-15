@@ -5,6 +5,7 @@ package com.ichi2.anki.ai
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.not
 import org.junit.Test
 
 /** Tests for rendering generated cards into Anki HTML and review previews. */
@@ -186,6 +187,146 @@ class FlashcardRendererTest {
                 image = CardImage(required = true, prompt = "p", caption = "Series circuit"),
             )
         assertThat(FlashcardRenderer.captionHtml(card), containsString("Series circuit"))
+    }
+
+    // ---------------------------------------------------------------- math formats
+
+    @Test
+    fun `dollar inline math in the back is normalized to canonical delimiters`() {
+        val card = GeneratedFlashcard(front = "Q", back = "Solve ${'$'}x^2 + 5x + 6 = 0${'$'} for x.")
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("""\(x^2 + 5x + 6 = 0\)"""))
+        assertThat(html, not(containsString("$")))
+    }
+
+    @Test
+    fun `dollar display math in the back is normalized`() {
+        val card = GeneratedFlashcard(front = "Q", back = "Use:${'$'}${'$'}x = \\frac{-b}{2a}${'$'}${'$'}")
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("""\[x = \frac{-b}{2a}\]"""))
+    }
+
+    @Test
+    fun `unicode math inside math spans is mapped to tex`() {
+        val card = GeneratedFlashcard(front = "Q", back = """Area is \(A = π r²\).""")
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("""\(A = \pi r^2\)"""))
+    }
+
+    @Test
+    fun `unicode chemistry subscripts in ce stay untouched`() {
+        // mhchem handles its own subscripts: \ce{H2O} must reach MathJax verbatim
+        val card = GeneratedFlashcard(front = "Q", back = """\( \ce{2H2 + O2 -> 2H2O} \)""")
+        assertThat(FlashcardRenderer.ankiBack(card), containsString("""\( \ce{2H2 + O2 -> 2H2O} \)"""))
+    }
+
+    @Test
+    fun `money dollars in the back stay plain text`() {
+        val card = GeneratedFlashcard(front = "Q", back = "It costs ${'$'}5 or ${'$'}10.")
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("${'$'}5 or ${'$'}10"))
+        assertThat(html, not(containsString("""\(""")))
+    }
+
+    @Test
+    fun `display math renders as a block not inline`() {
+        val card = GeneratedFlashcard(front = "Q", back = """Answer:\[ E = mc^2 \]done""")
+        val html = FlashcardRenderer.ankiBack(card)
+        // the display span survives as-is (canonical), not rewrapped or merged
+        assertThat(html, containsString("""\[ E = mc^2 \]"""))
+    }
+
+    @Test
+    fun `math in a formula section never lands in pre`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                sections = listOf(CardSection("Formula", """I = ${'$'}V/R${'$'}""")),
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("<b>Formula</b><br>"))
+        assertThat(html, containsString("""\(V/R\)"""))
+        assertThat(html, not(containsString("<pre>")))
+    }
+
+    @Test
+    fun `plain formula sections without any math still render in pre`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                sections = listOf(CardSection("Given", "V = 12 V\nR = 4 Ohm")),
+            )
+        assertThat(FlashcardRenderer.ankiBack(card), containsString("<b>Given</b><pre>V = 12 V\nR = 4 Ohm</pre>"))
+    }
+
+    @Test
+    fun `math spanning brackets inside math is not split by the old regex`() {
+        // the old single-regex matcher broke on \left[ ... \right]; segments cannot
+        val card = GeneratedFlashcard(front = "Q", back = """\( \left[ 0, \infty \right) \)""")
+        assertThat(FlashcardRenderer.ankiBack(card), containsString("""\( \left[ 0, \infty \right) \)"""))
+    }
+
+    @Test
+    fun `front field also gets math normalized`() {
+        val card = GeneratedFlashcard(front = "Solve ${'$'}x^2 = 4${'$'}", back = "A")
+        assertThat(FlashcardRenderer.ankiFront(card), containsString("""\(x^2 = 4\)"""))
+    }
+
+    @Test
+    fun `front field keeps money dollars untouched`() {
+        val card = GeneratedFlashcard(front = "What costs ${'$'}5?", back = "A")
+        val front = FlashcardRenderer.ankiFront(card)
+        assertThat(front, containsString("${'$'}5"))
+        assertThat(front, not(containsString("""\(""")))
+    }
+
+    @Test
+    fun `front bold markdown becomes html bold`() {
+        val card = GeneratedFlashcard(front = "Define **Ohm's Law**", back = "A")
+        assertThat(FlashcardRenderer.ankiFront(card), containsString("<b>Ohm's Law</b>"))
+    }
+
+    @Test
+    fun `front html-looking text is escaped`() {
+        val card = GeneratedFlashcard(front = "a <b>bold</b> attempt", back = "A")
+        assertThat(FlashcardRenderer.ankiFront(card), containsString("&lt;b&gt;"))
+    }
+
+    @Test
+    fun `review text shows normalized math without dollar delimiters`() {
+        val card = GeneratedFlashcard(front = "Q", back = "Solve ${'$'}x^2${'$'} now")
+        val text = FlashcardRenderer.reviewText(card)
+        assertThat(text, containsString("""\(x^2\)"""))
+    }
+
+    // ---------------------------------------------------------------- gray-box (pre) regression
+
+    @Test
+    fun `bare latex formula section renders as math not raw text in pre`() {
+        // the reported bug: undelimited LaTeX landed in <pre>, which MathJax skips
+        val line = "h = 15^\\circ \\times (\\text{Solar Time} - 12\\text{h})"
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                sections = listOf(CardSection("Formula", line)),
+            )
+        val html = FlashcardRenderer.ankiBack(card)
+        assertThat(html, containsString("<b>Formula</b><br>\\(" + line + "\\)"))
+        assertThat(html, not(containsString("<pre>")))
+    }
+
+    @Test
+    fun `code section with caret stays pre`() {
+        val card =
+            GeneratedFlashcard(
+                front = "Q",
+                back = "A",
+                sections = listOf(CardSection("Code (python)", "result = x^2 + 1")),
+            )
+        assertThat(FlashcardRenderer.ankiBack(card), containsString("<pre>result = x^2 + 1</pre>"))
     }
 
     @Test

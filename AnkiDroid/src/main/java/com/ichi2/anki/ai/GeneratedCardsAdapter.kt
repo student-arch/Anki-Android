@@ -84,7 +84,8 @@ class GeneratedCardsAdapter : ListAdapter<ReviewItem, GeneratedCardsAdapter.View
         val header = listOfNotNull(item.card.subject, item.card.topic).joinToString(" \u00b7 ")
         holder.binding.subject.isVisible = header.isNotEmpty()
         holder.binding.subject.text = header
-        holder.binding.front.text = item.card.front
+        // normalized math (canonical delimiters) so the preview matches the saved note
+        holder.binding.front.text = MathNormalizer.normalize(item.card.front)
         holder.binding.back.text = FlashcardRenderer.reviewText(item.card)
         holder.binding.accepted.setOnCheckedChangeListener(null)
         holder.binding.accepted.isChecked = item.isSelected

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="?attr/actionBarSize"
+        app:navigationIcon="@drawable/close_icon"
+        app:title="@string/ai_math_debug_title"
+        app:titleTextAppearance="@style/TextAppearance.AnkiDroid.TopAppBar.Title" />
+
+    <ScrollView
+        android:id="@+id/math_debug_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</LinearLayout>
